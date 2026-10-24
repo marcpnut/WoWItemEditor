@@ -68,7 +68,7 @@ Open **Gear designer** under Editors. The selected catalog/character item is pre
 - **Set designer:** browse a set, select specific pieces or a piece count and apply the selection. See calculated combined base stats, rarity-colored set tooltip, bonus thresholds and next threshold. Missing definitions, repeated bonus spells and obvious slot conflicts are identified. Specialization/trait/skill/flag requirements are marked conditional. Open the selected piece or the set-bonus editor from this workspace, then refresh after saving.
 - **Duplicate as new item:** available in the designer and item editor. Choose an existing source, edit the copy in a draft and review before saving. Saving allocates an unused item ID and new appearance/effect-link IDs in one transaction. Item identity, sparse fields, appearance mappings and effect assignments are copied; shared appearance/effect/spell definitions remain referenced. Source definitions are not edited. **Item, set & proc edits** records creation, supports revert/reapply and detects later edits/owned instances before allowing an old creation to be undone. Created items can be edited again. They have no installed native original and remain excluded from the legacy original-comparison History list; creation history remains available in the operation list. Reload the server and verify the spawned copy in game.
 
-While the older app is running, use **START_DESIGNER_PREVIEW.bat** to open the separately built update in artifacts/safety/. It uses the same database, so saves in either version remain real saves; stale edits are checked before writing. This launcher preserves the running app's binaries. The standard launcher builds the latest source after you close the older app.
+While the older app is running, use **START_DESIGNER_PREVIEW.bat** to open the separately built update in artifacts/equipment/. It uses the same database, so saves in either version remain real saves; stale edits are checked before writing. This launcher preserves the running app's binaries. The standard launcher builds the latest source after you close the older app.
 
 ## Item editor
 
@@ -121,3 +121,13 @@ Use **START_DESIGNER_PREVIEW.bat** for the current separately built update. It p
 The verification suite additionally writes `artifacts/safety-stats-bosses-verification.json` and renders the bonus-value explanation, aura search, Mail/stat draft, boss selector and Modify created sets windows. Membership additions/removals, rename, source preservation, unchanged removed-item loot, stale saves, undo/redo and bonus caps are tested in rolled-back transactions. Live custom server behavior still needs in-game verification.
 
 DB2 schema downloads use DBCD's local DBDCache/ cache (ignored by Git), with up to three attempts for transient network failures in the shared table reader. The library refreshes cached definitions after one day. SQL hotfixes and installed calculation rows are still loaded and validated on saves.
+
+## Equipment layouts for sets
+
+Set creator, Modify created sets and Gear designer's Set designer now open a WoW-style equipment layout: armor/accessories down both sides of a character silhouette, weapons along the bottom, rarity-colored slot borders/names and a selected-item tooltip beside the layout. These are slot symbols and a silhouette; no live 3D model or extracted item artwork is included.
+
+Click an occupied slot to inspect its actual tooltip. Double-click it to open the item editor. New set-creator copies and pending additions to created sets edit a draft; their base items remain unchanged. Save membership drafts before editing existing saved pieces. Clicking an empty slot in the creator/modifier opens its filtered base-item picker. The member tables, totals and bonus views remain available in adjacent tabs. Two ring/trinket positions are separate; a two-handed weapon reserves the off-hand. Extra or conflicting set pieces remain visible in an additional-pieces list rather than disappearing.
+
+Equipment layout checks and a rendered example are written to artifacts/equipment-layout-verification.json and artifacts/equipment-layout-preview.png by --verify. These selection/layout checks make no game writes; the existing save/history integration checks roll their writes back.
+
+Use --verify-equipment for the focused read-only equipment-layout and created-set footer checks without running save/history test transactions.

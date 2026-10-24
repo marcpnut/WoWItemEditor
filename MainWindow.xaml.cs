@@ -56,7 +56,7 @@ public partial class MainWindow : Window
             BindItems();
             SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
-            if(verify) await VerifyAndRender(result);
+            if(verify){if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else await VerifyAndRender(result);}
         }
         catch(Exception ex)
         {

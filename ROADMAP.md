@@ -21,3 +21,5 @@ The user verified item revert and inactive history removal in game. Server-suppl
 - Verify newly created sets, privately edited bonuses and world drops in the running custom server; current checks verify persisted definitions and rollback, not live loot rolls.
 
 Implemented after the crash review: effective calculation-row safety gates, immediate stat draft updates, named material filters, readable allowed classes, instance/boss-only drops, searchable aura/effect choices, explained and bounded private bonus values, and Modify created sets with duplicate additions, non-destructive member removal, rename and transactional history. See SERVER_SAFETY.md for observed table bounds and the limits of crash diagnosis without matching symbols.
+
+Set workspaces now include an equipment-slot layout with selection tooltips and double-click item editing. Live character model rendering and actual item icon artwork remain future work.

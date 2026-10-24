@@ -8,7 +8,7 @@ public partial class MainWindow
     private async Task VerifyDesigner(CatalogResult catalog,ReferenceCatalog references)
     {
         static void Assert(bool value,string message){if(!value)throw new InvalidOperationException(message);}
-        var native=catalog.Originals;var chest=native[22416];var weapon=catalog.Items.First(i=>i.ClassId==2&&i.Slot==13);var twoHand=catalog.Items.First(i=>i.ClassId==2&&i.Slot==17);var offHand=catalog.Items.First(i=>i.Slot==14);var ring=catalog.Items.First(i=>i.Slot==11);var trinket=catalog.Items.First(i=>i.Slot==12);
+        await VerifyEquipmentLayout(catalog);var native=catalog.Originals;var chest=native[22416];var weapon=catalog.Items.First(i=>i.ClassId==2&&i.Slot==13);var twoHand=catalog.Items.First(i=>i.ClassId==2&&i.Slot==17);var offHand=catalog.Items.First(i=>i.Slot==14);var ring=catalog.Items.First(i=>i.Slot==11);var trinket=catalog.Items.First(i=>i.Slot==12);
         var lookup=catalog.Items.ToDictionary(i=>i.Id);lookup[chest.Id]=chest;
         OwnedItem Owned(CatalogItem item,int slot,ulong guid)=>new(guid,item.Id,1,0,slot,"Equipped",100,"","",0,0,true);
         var hero=new CharacterInfo(999999,"Design fixture",60,1,false,0);var equipment=new CharacterSnapshot(hero,[Owned(weapon,15,1),Owned(offHand,16,2),Owned(ring,10,3),Owned(ring,11,4),Owned(trinket,12,5),Owned(trinket,13,6)]);
