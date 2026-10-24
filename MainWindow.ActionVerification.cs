@@ -67,6 +67,7 @@ public partial class MainWindow
         await VerifyItemAndBonusEditing(catalog,references);
         await VerifyDesigner(catalog,references);
         await VerifySetCreation(catalog,references);
+        await VerifySafetyStatsAndBosses(catalog,references);
         await File.WriteAllTextAsync("artifacts/action-reference-verification.json",JsonSerializer.Serialize(new{spells=references.Spells.Count,itemEffects=references.Procs.Count(p=>p.EffectId.HasValue),candidates=references.Procs.Count(p=>!p.EffectId.HasValue),checks="Revert/reapply exact payload roundtrip, immutable archive, audit mirror, stale conflict rejection, shared dependencies unchanged, all test writes rolled back; history filters; complete read-only spell/proc catalogs and search"},new JsonSerializerOptions{WriteIndented=true}));
     }
     private async Task RenderFeature(string name)

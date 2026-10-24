@@ -46,7 +46,7 @@ public partial class MainWindow : Window
         {
             var result=await new CatalogRepository().LoadAsync();
             items=result.Items;
-            tooltipData=result.Tooltips;
+            tooltipData=result.Tooltips;ItemKinds.Bind(ItemSubtype,tooltipData,(ItemType.SelectedItem as FilterChoice)?.Id??-1);
             catalogById=items.ToDictionary(i=>i.Id);
             BindHistory(result);
             if(characterSnapshot is not null)characterItems=CharacterRows(characterSnapshot);
@@ -68,6 +68,7 @@ public partial class MainWindow : Window
     }
     private void FilterChanged(object sender,RoutedEventArgs e)
     {
+        if(ReferenceEquals(sender,ItemType)&&ItemSubtype is not null)ItemKinds.Bind(ItemSubtype,tooltipData,(ItemType.SelectedItem as FilterChoice)?.Id??-1);
         if(view is null) return;
         filterTimer.Stop(); filterTimer.Start();
     }
@@ -92,7 +93,7 @@ public partial class MainWindow : Window
                 if(storage==3&&!row.Location.StartsWith("Mail"))return false;
                 if(storage==4&&!row.Location.StartsWith("Void"))return false;
             }
-            return (set<0||members?.Contains(item.Id)==true)&&Matches(item,query,rarity,slot,type,MinLevel.Text.Length>0?min:null,MaxLevel.Text.Length>0?max:null);
+            return ItemKinds.Matches(ItemSubtype,item)&&(set<0||members?.Contains(item.Id)==true)&&Matches(item,query,rarity,slot,type,MinLevel.Text.Length>0?min:null,MaxLevel.Text.Length>0?max:null);
         };
         int count=view.Cast<object>().Count();
         ResultCount.Text=$"{count:N0} of {(characterMode?characterItems.Count:items.Count):N0} "+(characterMode?"item instances":"items");
@@ -106,7 +107,7 @@ public partial class MainWindow : Window
         && (!min.HasValue||item.RequiredLevel>=min)&&(!max.HasValue||item.RequiredLevel<=max);
     private static bool TryLevel(string text,out int level) { level=0; return string.IsNullOrWhiteSpace(text)||int.TryParse(text,out level)&&level>=0; }
     private void ClearClick(object sender,RoutedEventArgs e)
-    { Search.Clear(); MinLevel.Clear(); MaxLevel.Clear(); Rarity.SelectedIndex=Slot.SelectedIndex=ItemType.SelectedIndex=0; SetFilter.SelectedIndex=0; filterTimer.Stop(); ApplyFilters(); }
+    { Search.Clear(); MinLevel.Clear(); MaxLevel.Clear(); Rarity.SelectedIndex=Slot.SelectedIndex=ItemType.SelectedIndex=0; SetFilter.SelectedIndex=0;ItemSubtype.SelectedIndex=0; filterTimer.Stop(); ApplyFilters(); }
     private void OpenSet(int id)
     {
         ItemNav.IsChecked=true;

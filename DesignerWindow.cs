@@ -21,11 +21,13 @@ internal sealed class SetPieceChoice
     public string Name=>Item.Name;
     public int Id=>Item.Id;
     public string Slot=>Item.SlotName;
+    public string Subtype=>Item.SubtypeName;
     public int ItemLevel=>Item.ItemLevel;
 }
 internal sealed class DesignerWindow : Window
 {
     private CatalogResult catalog;
+    private readonly ItemKindFilter itemKinds;
     private Dictionary<int,CatalogItem> lookup;
     private readonly ListBox items=new(){DisplayMemberPath="Label"};
     private readonly TextBox search=new(),level=new(){Text="60",Width=55};
@@ -39,7 +41,7 @@ internal sealed class DesignerWindow : Window
     private readonly BudgetPanel budget=new();
     private readonly ComboBox sets=new(){Width=400,DisplayMemberPath="Label"},pieceCount=new(){Width=150,DisplayMemberPath="Label"};
     private readonly TextBox setSearch=new(){Width=240,ToolTip="Find set by name or exact ID"};
-    private readonly DataGrid pieces=Table(("Piece","Name"),("Slot","Slot"),("Level","ItemLevel"));
+    private readonly DataGrid pieces=Table(("Piece","Name"),("Slot","Slot"),("Subtype","Subtype"),("Level","ItemLevel"));
     private readonly DataGrid setTotals=Table(("Selected pieces · base stat","Name"),("Total","After"));
     private readonly StackPanel setTooltip=new();
     private readonly TextBlock setNote=Text("",12);
@@ -53,14 +55,15 @@ internal sealed class DesignerWindow : Window
     internal bool Saved {get;private set;}
     internal DesignerWindow(CatalogResult catalog,int? initialId=null,int initialTab=0)
     {
-        this.catalog=catalog;lookup=catalog.Items.ToDictionary(i=>i.Id);Title="Gear designer";Width=1480;Height=940;MinWidth=1180;MinHeight=790;Background=new SolidColorBrush(Color.FromRgb(35,36,40));WindowStartupLocation=WindowStartupLocation.CenterOwner;
+        this.catalog=catalog;itemKinds=new(catalog.Tooltips);lookup=catalog.Items.ToDictionary(i=>i.Id);Title="Gear designer";Width=1480;Height=940;MinWidth=1180;MinHeight=790;Background=new SolidColorBrush(Color.FromRgb(35,36,40));WindowStartupLocation=WindowStartupLocation.CenterOwner;
         var root=new DockPanel{Margin=new Thickness(20),Background=Background};Content=root;var title=Text("GEAR DESIGNER",23);title.Foreground=Brushes.LightSkyBlue;DockPanel.SetDock(title,Dock.Top);root.Children.Add(title);
         var controls=new WrapPanel{Margin=new Thickness(0,12,0,12)};DockPanel.SetDock(controls,Dock.Top);root.Children.Add(controls);controls.Children.Add(Text("Preview level",13));controls.Children.Add(level);var apply=Button("Apply level",controls);apply.Click+=(_,_)=>{if(!int.TryParse(level.Text,out int n)||n is <1 or >60){feedback.Text="Enter a level from 1 to 60.";return;}previewLevel=n;Update();UpdateSet();};
         var edit=Button("Edit selected item",controls);edit.Click+=async(_,_)=>{if(candidate is not null)await EditItem(candidate.Id);};var duplicate=Button("Duplicate as new item",controls);duplicate.Click+=async(_,_)=>{if(candidate is null)return;var w=new ItemEditorWindow(this.catalog,candidate.Id,true){Owner=this};w.ShowDialog();if(w.Saved){Saved=true;await Refresh();}};
         var newSet=Button("Create new set…",controls);newSet.Click+=async(_,_)=>{if(busy)return;try{busy=true;var creator=new SetCreatorWindow(this.catalog,await ReferenceCatalog.LoadAsync()){Owner=this};creator.ShowDialog();if(creator.Result is {} result){Saved=true;await Refresh();setSearch.Clear();sets.SelectedItem=sets.Items.Cast<ContentChoice>().FirstOrDefault(s=>s.Id==result.SetId);tabs.SelectedIndex=2;}}catch(Exception ex){feedback.Text=ex.Message;}finally{busy=false;}};
+        var locations=Button("Drop location…",controls);locations.Click+=async(_,_)=>{if(candidate is null||busy)return;try{busy=true;var editor=new DropLocationWindow(candidate,persist:true){Owner=this};editor.ShowDialog();if(editor.Saved){Saved=true;await Refresh();}}catch(Exception ex){feedback.Text=ex.Message;}finally{busy=false;}};
         var refresh=Button("Refresh catalog",controls);refresh.Click+=async(_,_)=>await Refresh();DockPanel.SetDock(feedback,Dock.Bottom);feedback.Margin=new Thickness(0,10,0,0);root.Children.Add(feedback);
         var body=new Grid();body.ColumnDefinitions.Add(new(){Width=new GridLength(230)});body.ColumnDefinitions.Add(new(){Width=new GridLength(14)});body.ColumnDefinitions.Add(new());root.Children.Add(body);
-        var left=new DockPanel();body.Children.Add(left);var help=Text("Candidate item · name or ID",12);DockPanel.SetDock(help,Dock.Top);left.Children.Add(help);DockPanel.SetDock(search,Dock.Top);search.Margin=new Thickness(0,6,0,10);left.Children.Add(search);items.Background=new SolidColorBrush(Color.FromRgb(40,42,47));items.Foreground=Brushes.LightGray;left.Children.Add(items);items.SelectionChanged+=(_,_)=>{candidate=lookup.GetValueOrDefault((items.SelectedItem as ContentChoice)?.Id??0);BindTargets();Update();};search.TextChanged+=(_,_)=>BindItems();
+        var left=new DockPanel();body.Children.Add(left);var help=Text("Candidate item · name or ID",12);DockPanel.SetDock(help,Dock.Top);left.Children.Add(help);DockPanel.SetDock(search,Dock.Top);search.Margin=new Thickness(0,6,0,10);left.Children.Add(search);items.Background=new SolidColorBrush(Color.FromRgb(40,42,47));items.Foreground=Brushes.LightGray;DockPanel.SetDock(itemKinds,Dock.Top);left.Children.Add(itemKinds);itemKinds.Changed+=BindItems;left.Children.Add(items);items.SelectionChanged+=(_,_)=>{candidate=lookup.GetValueOrDefault((items.SelectedItem as ContentChoice)?.Id??0);BindTargets();Update();};search.TextChanged+=(_,_)=>BindItems();
         Grid.SetColumn(tabs,2);body.Children.Add(tabs);tabs.Items.Add(new TabItem{Header="Compare equipped gear",Content=Comparison()});tabs.Items.Add(new TabItem{Header="Item budget & balance",Content=budget});tabs.Items.Add(new TabItem{Header="Set designer",Content=SetDesigner()});tabs.SelectedIndex=initialTab;
         BindItems();if(initialId.HasValue)items.SelectedItem=items.Items.Cast<ContentChoice>().FirstOrDefault(i=>i.Id==initialId);if(items.SelectedItem is null)items.SelectedItem=items.Items.Cast<ContentChoice>().FirstOrDefault(i=>GearDesign.Targets(lookup[i.Id]).Length>0);BindSets();
         Loaded+=async(_,_)=>{try{changing=true;character.ItemsSource=await CharacterRepository.ListAsync();if(character.Items.Count>0)character.SelectedIndex=0;changing=false;if(character.SelectedItem is not null)await LoadCharacter();else comparisonNote.Text="No characters found. Budget and set previews remain available.";if(items.SelectedItem is not null)items.ScrollIntoView(items.SelectedItem);}catch(Exception ex){feedback.Text="Could not load characters: "+ex.Message;}finally{changing=false;ready.TrySetResult();}};Closing+=(_,e)=>e.Cancel=busy;
@@ -78,7 +81,7 @@ internal sealed class DesignerWindow : Window
     internal void SelectVerificationTab(int index){tabs.SelectedIndex=index;}
     internal void SelectCreatedSet(int id){setSearch.Clear();sets.SelectedItem=sets.Items.Cast<ContentChoice>().FirstOrDefault(s=>s.Id==id);tabs.SelectedIndex=2;}
     private async Task LoadCharacter(){int token=++characterRequest;snapshot=null;UpdateComparison();if(character.SelectedItem is not CharacterInfo info)return;try{feedback.Text="Loading character equipment…";var loaded=await CharacterRepository.LoadAsync(info);if(token!=characterRequest)return;snapshot=loaded;feedback.Text="Character loaded. Comparisons never equip items or modify character data.";UpdateComparison();}catch(Exception ex){if(token==characterRequest)feedback.Text=ex.Message;}}
-    private void BindItems(){int? id=candidate?.Id;string q=search.Text.Trim();items.ItemsSource=catalog.Items.Where(i=>q.Length==0||i.Id.ToString()==q||i.Name.Contains(q,StringComparison.OrdinalIgnoreCase)).Select(i=>new ContentChoice(i.Id,i.Name)).ToList();items.SelectedItem=items.Items.Cast<ContentChoice>().FirstOrDefault(i=>i.Id==id);}
+    private void BindItems(){int? id=candidate?.Id;string q=search.Text.Trim();items.ItemsSource=catalog.Items.Where(i=>itemKinds.Matches(i)&&(q.Length==0||i.Id.ToString()==q||i.Name.Contains(q,StringComparison.OrdinalIgnoreCase))).Select(i=>new ContentChoice(i.Id,i.Name+" · "+i.SubtypeName)).ToList();items.SelectedItem=items.Items.Cast<ContentChoice>().FirstOrDefault(i=>i.Id==id);}
     private void BindTargets(){int? previous=(target.SelectedItem as FilterChoice)?.Id;target.ItemsSource=candidate is null?Array.Empty<FilterChoice>():GearDesign.Targets(candidate).Select(n=>new FilterChoice(n,GearDesign.EquipmentSlots[n])).ToArray();target.SelectedItem=target.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==previous);if(target.SelectedItem is null&&target.Items.Count>0)target.SelectedIndex=0;}
     private void Update(){if(candidate is not null)budget.Update(candidate,catalog,previewLevel);else budget.Clear();UpdateComparison();}
     private void UpdateComparison()
@@ -104,5 +107,5 @@ internal sealed class DesignerWindow : Window
         foreach(var p in setPieces)lines.Add(new(p.Name,p.Selected?ItemTooltip.Green:ItemTooltip.Gray,Indent:10));foreach(int id in missing)lines.Add(new($"Item {id} · definition unavailable",ItemTooltip.Gray,Indent:10));lines.Add(new("",Size:5));foreach(var bonus in set.Bonuses){bool conditional=bonus.Specialization!=0||set.RequiredSkill!=0||bonus.Trait!=0||set.Flags!=0;lines.Add(new($"({bonus.Pieces}) {(count>=bonus.Pieces?conditional?"Conditional":"Active":"Inactive")}: {catalog.Tooltips.SpellDescription(bonus.SpellId)}"+(bonus.Specialization!=0?$" [Spec {bonus.Specialization}]":"")+(bonus.Trait!=0?$" [Trait {bonus.Trait}]":""),count>=bonus.Pieces&&!conditional?ItemTooltip.Green:ItemTooltip.Gray));}if(set.RequiredSkill>0)lines.Add(new($"Requires {catalog.Tooltips.Skills.GetValueOrDefault(set.RequiredSkill)??$"Skill {set.RequiredSkill}"} ({set.RequiredSkillRank})",ItemTooltip.Gold));TooltipView.Fill(setTooltip,lines);
     }
     private async Task EditItem(int id){if(busy)return;try{busy=true;var w=new ItemEditorWindow(catalog,id){Owner=this};w.ShowDialog();if(w.Saved){Saved=true;await Refresh();}}finally{busy=false;}}
-    private async Task Refresh(){try{feedback.Text="Refreshing designer data…";catalog=await new CatalogRepository().LoadAsync();lookup=catalog.Items.ToDictionary(i=>i.Id);BindItems();BindSets();Update();feedback.Text="Refreshed. Saved character equipment is unchanged.";}catch(Exception ex){feedback.Text=ex.Message;}}
+    private async Task Refresh(){try{feedback.Text="Refreshing designer data…";catalog=await new CatalogRepository().LoadAsync();itemKinds.Bind(catalog.Tooltips);lookup=catalog.Items.ToDictionary(i=>i.Id);BindItems();BindSets();Update();feedback.Text="Refreshed. Saved character equipment is unchanged.";}catch(Exception ex){feedback.Text=ex.Message;}}
 }

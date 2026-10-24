@@ -31,7 +31,7 @@ internal static class ContentEditing
     {
         if(kind is not ("Set" or "Proc"))throw new ArgumentException("Unsupported editor");
         string fingerprint=Fingerprint();
-        var native=await Task.Run(()=>{var r=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider());return Tables.ToDictionary(t=>t.Key,t=>TooltipData.LoadTable(r,t.Value));});
+        var native=await Task.Run(()=>{var r=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));return Tables.ToDictionary(t=>t.Key,t=>TooltipData.LoadTable(r,t.Value));});
         using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);
         using var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
         var effective=new Dictionary<string,Dictionary<int,Dictionary<string,string>>>();
@@ -57,7 +57,7 @@ internal static class ContentEditing
     {
         if(scope.Creation is not null)return await SetCreation.Capture(db,tx,scope.Creation,locked);
         if(scope.Kind=="Clone")return await ItemCloning.CaptureAsync(db,tx,scope.EntityId,scope.CopyScope!,locked);
-        if(scope.Kind=="Item"){var item=await HistoryActions.CaptureAsync(db,tx,scope.EntityId,locked);if(scope.Drops is not null)foreach(var p in await WorldDrops.Capture(db,tx,scope.Drops,locked))item.Tables[p.Key]=p.Value;return item;}
+        if(scope.Kind is "Item" or "ItemDrops"){var item=await HistoryActions.CaptureAsync(db,tx,scope.EntityId,locked);if(scope.Drops is not null)foreach(var p in await WorldDrops.Capture(db,tx,scope.Drops,locked))item.Tables[p.Key]=p.Value;return item;}
         string suffix=locked?" FOR UPDATE":"";int id=scope.EntityId;var tables=new Dictionary<string,List<Dictionary<string,string?>>>();
         string main=scope.Kind=="Set"?"item_set_spell":"item_x_item_effect",parent=scope.Kind=="Set"?"ItemSetID":"ItemID";
         tables[main]=await Query(db,tx,$"SELECT * FROM {main} WHERE {parent}=@id OR ID IN({Ids(scope.RowIds)}) ORDER BY ID,VerifiedBuild"+suffix,id);
@@ -186,8 +186,9 @@ internal static class ContentEditing
         var expected=JsonSerializer.Deserialize<ItemSnapshot>(op.Expected)!;
         if(HistoryActions.Canonical(current)!=HistoryActions.Canonical(expected))throw new InvalidOperationException("Conflict: newer edits or shared references exist. This archived edit cannot be applied automatically; reopen the editor to review the current configuration.");
         var target=JsonSerializer.Deserialize<ItemSnapshot>(op.Active?op.Before:op.After)!;
+        await ItemSaveSafety.ValidateSnapshot(db,tx,target,scope.Kind is "Item" or "ItemDrops"?scope.EntityId:null);
         var before=JsonSerializer.Deserialize<ItemSnapshot>(op.Before)!;var after=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;
-        foreach(string table in (scope.Kind is "Clone" or "NewSet"?Array.Empty<string>():scope.Kind=="Set"?new[]{"item_set_spell"}:scope.Kind=="Item"?new[]{"item_sparse","item"}:new[]{"item_effect","item_x_item_effect"})){
+        foreach(string table in (scope.Kind is "Clone" or "NewSet" or "SetMembers" or "ItemDrops"?Array.Empty<string>():scope.Kind=="Set"?new[]{"item_set_spell"}:scope.Kind=="Item"?new[]{"item_sparse","item"}:new[]{"item_effect","item_x_item_effect"})){
             var ids=before.Tables[table].Concat(after.Tables[table]).Select(r=>int.Parse(r["ID"]!)).Concat(scope.Kind=="Set"||table=="item_x_item_effect"?scope.RowIds:scope.EffectIds).Distinct();
             foreach(int id in ids){
                 var oldRows=before.Tables[table].Where(r=>r["ID"]==id.ToString()).ToList();var newRows=after.Tables[table].Where(r=>r["ID"]==id.ToString()).ToList();

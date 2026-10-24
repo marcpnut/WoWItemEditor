@@ -38,7 +38,7 @@ public sealed class CatalogRepository
     private static string Value(object? value) => value is null or DBNull ? "" : Convert.ToString(value,CultureInfo.InvariantCulture) ?? "";
     internal static Dictionary<int,CatalogItem> LoadBaseline()
     {
-        var reader = new DBCD.DBCD(new FilesystemDBCProvider(Db2Folder),new GithubDBDProvider());
+        var reader = new DBCD.DBCD(new FilesystemDBCProvider(Db2Folder),new GithubDBDProvider(true));
         var sparse=reader.Load("ItemSparse","7.3.5.70450");
         var items=new Dictionary<int,CatalogItem>();
         var aliases=new Dictionary<string,string> { ["Display_lang"]="Display",["Description_lang"]="Description",["Display1_lang"]="Display1",["Display2_lang"]="Display2",["Display3_lang"]="Display3",["Gem_properties"]="GemProperties",["Socket_match_enchantment_ID"]="SocketMatchEnchantmentId",["DamageType"]="DamageDamageType",["OppositeFactionItemID"]="FactionRelated" };

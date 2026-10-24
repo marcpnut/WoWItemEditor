@@ -10,14 +10,14 @@ public sealed class ItemCalculations
     private readonly Dictionary<int,float> socketCost=[];
     // Formula reference: TrinityCore Item.cpp / ItemTemplate.cpp / ItemEnchantmentMgr.cpp.
     // Actual coefficients come exclusively from this server's DB2/GT and active hotfix rows.
-    internal static async Task<ItemCalculations> LoadAsync(MySqlConnection db,DBCD.DBCD reader,bool includeOverrides=true)
+    internal static async Task<ItemCalculations> LoadAsync(MySqlConnection db,DBCD.DBCD reader,bool includeOverrides=true,MySqlTransaction? tx=null)
     {
         var result=new ItemCalculations();
         string[] names=["RandPropPoints","ItemArmorTotal","ItemArmorQuality","ItemArmorShield","ArmorLocation","ItemDamageOneHand","ItemDamageOneHandCaster","ItemDamageTwoHand","ItemDamageTwoHandCaster","Curve","CurvePoint","ContentTuning"];
         foreach(string name in names) {
             var rows=await Task.Run(()=>TooltipData.LoadTable(reader,name));
             string sql=System.Text.RegularExpressions.Regex.Replace(name,"(?<=[a-z0-9])([A-Z])","_$1").ToLowerInvariant();
-            if(includeOverrides)await TooltipData.Overlay(db,sql,name,rows);result.tables[name]=rows;
+            if(includeOverrides)await TooltipData.Overlay(db,sql,name,rows,tx);result.tables[name]=rows;
         }
         var path=Path.Combine(Path.GetDirectoryName(CatalogRepository.Db2Folder)!,"..","gt","ItemSocketCostPerLevel.txt");
         foreach(string line in File.ReadLines(path).Skip(1)) {
@@ -101,8 +101,18 @@ public sealed class ItemCalculations
                 minDamage=Round(average*(1-variance*0.5f));maxDamage=Round(average*(1+variance*0.5f));
             }
         }
-        string note=curve==0?"Fixed item level: changing character level does not scale this item’s base stats.":$"Item scaling calculated at level {(instance?.FixedLevel>0?instance.FixedLevel:level)}.";
+        var missing=ServerProblems(item).Where(p=>p.Contains("has no row")||p.Contains("table unavailable")||p.Contains("no verified damage-table mapping")).ToArray();string note=missing.Length>0?"MISSING SERVER DATA: "+string.Join(" ",missing):curve==0?"Fixed item level: changing character level does not scale this item’s base stats.":$"Item scaling calculated at level {(instance?.FixedLevel>0?instance.FixedLevel:level)}.";
         return new(itemLevel,armor,stats,minDamage,maxDamage,dps,note);
+    }
+    internal List<string> ServerProblems(CatalogItem item)
+    {
+        var problems=new List<string>();int level=item.ItemLevel,quality=item.Quality==7?3:item.Quality;
+        void Require(string table){if(Row(table,level) is null){var ids=tables.GetValueOrDefault(table)?.Keys.Order().ToArray()??[];problems.Add($"{table} has no row for item level {level}"+(ids.Length>0?$" (installed/effective range {ids[0]}–{ids[^1]}; gaps are also blocked).":" (table unavailable)."));}}
+        if(item.ClassId==2&&item.Slot>0){if(quality is <0 or >6)problems.Add("Unsupported weapon quality for the server damage tables.");bool caster=(item.Number("Flags2")&0x200)!=0;int sub=item.Number("SubclassID");string? damage=item.Slot switch{13 or 21 or 22=>caster?"ItemDamageOneHandCaster":"ItemDamageOneHand",17=>caster?"ItemDamageTwoHandCaster":"ItemDamageTwoHand",15 or 25 or 26 when sub==19=>"ItemDamageOneHandCaster",15 or 25 or 26 when sub is 2 or 3 or 18=>caster?"ItemDamageTwoHandCaster":"ItemDamageTwoHand",_=>null};if(damage is null)problems.Add("This weapon/slot combination has no verified damage-table mapping.");else Require(damage);if(item.Number("ItemDelay")<=0)problems.Add("Equipped weapons need a positive weapon speed.");}
+        if(item.ClassId==4&&item.Number("SubclassID") is >=1 and <=6&&item.Slot>0){if(quality is <0 or >6)problems.Add("Unsupported armor quality for the server armor tables.");if(item.Number("SubclassID")==6)Require("ItemArmorShield");else if(item.Number("SubclassID")<=4){Require("ItemArmorTotal");Require("ItemArmorQuality");if(Row("ArmorLocation",item.Slot==20?5:item.Slot) is null)problems.Add("ArmorLocation has no row for the selected armor slot.");}}
+        if(Enumerable.Range(1,10).Any(n=>item.Number("StatModifierBonusStat"+n)>=0&&item.Number("StatPercentEditor"+n)!=0))Require("RandPropPoints");
+        if(new[]{"PlayerLevelToItemLevelCurveID","ItemLevelOffsetCurveID","ItemSquishEraID","ContentTuningID"}.Any(k=>item.Number(k)!=0))problems.Add("Level-scaling definitions require a verified server-level bounds check; saving this scaling layout is blocked.");
+        return problems;
     }
     internal int AllocationFor(CatalogItem item,int index,int amount,int level)
     {

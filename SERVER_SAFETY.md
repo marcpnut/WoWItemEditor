@@ -1,0 +1,13 @@
+# Server lookup safety investigation — 24 October 2026
+
+The supplied crash report records exception C0000420 in ASSERT_NOTNULL_IMPL, with a failed LookupEntry(id). The release stack has addresses but no resolved game function names. The minidump metadata references the build's worldserver.pdb on the original build machine; that matching PDB was unavailable locally. Therefore the exact asserted table/frame has not been proven.
+
+The installed ItemDamageOneHand, ItemDamageOneHandCaster, ItemDamageTwoHand and ItemDamageTwoHandCaster tables each contain levels 1–100. Level 101 is absent. The armor calculation tables also end at 100; RandPropPoints extends to 300. Thunderfury's current saved item level was confirmed as 99 and left untouched. A missing weapon-damage lookup at level 101 is consistent with the assertion and the reported trigger.
+
+The editor now validates the actual effective calculation rows (including hotfixes), rather than assuming the UI's generic item-level range is safe. Missing rows, unknown weapon mappings and unsupported level-scaling layouts block saves, duplicates, set creation and item-history restoration. Missing data is explicitly marked in the tooltip rather than presented as ordinary scaling. This guards the identified data failure; it does not certify every custom server code path as crash-free.
+
+Set-bonus values have a separate conservative editor policy: only known fixed amount effects can be changed. Whole-number chance bonuses are limited to 0–100 percentage points, supported attribute/rating amounts to 0–1,000, supported flat combat amounts to 0–10,000, and the supported damage/healing percent modifier to 0–100%. These are editor policy limits, not measured universal server limits. Unknown, identifier/count/script and scaling parameters are read-only. Validation runs before allocation/application and when restoring edited private bonus values from history.
+
+Verification uses real database definitions and rolled-back transactions. It covers missing row 101, supported row 100, safe item save/copy/restore gates, persistent stat-type edits, named armor filters, Mail plus Shaman restrictions, boss-only loot and history, created-set membership changes and source preservation, and bonus-value validation. No test item or loot changes are committed, and no live server reload is performed.
+
+Reference definitions for effect labels and modifier semantics: [TrinityCore SpellAuraDefines.h](https://github.com/TrinityCore/TrinityCore/blob/master/src/server/game/Spells/Auras/SpellAuraDefines.h), [SpellDefines.h](https://github.com/TrinityCore/TrinityCore/blob/master/src/server/game/Spells/SpellDefines.h). These upstream references do not prove equivalence with the custom AnoCore executable.

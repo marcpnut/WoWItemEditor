@@ -136,6 +136,7 @@ internal static class HistoryActions
         var state=await StateAsync(db,tx,plan.Id,plan.Build,true);
         if((state?.Version??0)!=plan.Version||Canonical(before)!=Canonical(plan.Expected))throw new InvalidOperationException("Conflict: the item changed after review. No changes were applied.");
         var target=plan.Reapply?plan.Modified:plan.Target;
+        await ItemSaveSafety.ValidateSnapshot(db,tx,target,plan.Id);
         var targetRows=target.Tables["item_sparse"];
         // Only item_sparse is restored. Dependency snapshots protect references but are never written.
         if(JsonSerializer.Serialize(before.Tables["item_sparse"])!=JsonSerializer.Serialize(targetRows)) {

@@ -7,7 +7,7 @@ using MySqlConnector;
 namespace AnoWowItemEditor;
 
 internal sealed record BonusTable(string Sql,string Dbc,bool ParentSpell);
-internal sealed record BonusScope(int[] SpellIds,Dictionary<string,int[]> Records,int[] OwnedSpells,string Fingerprint,List<BonusTable> Tables);
+internal sealed record BonusScope(int[] SpellIds,Dictionary<string,int[]> Records,int[] OwnedSpells,string Fingerprint,List<BonusTable> Tables,int[]? EditedEffects=null);
 internal sealed record BonusBlueprint(int Root,BonusScope Scope,ItemSnapshot Expected,Dictionary<string,List<Dictionary<string,string>>> Rows,Dictionary<string,int> MaxIds,Dictionary<int,Dictionary<string,string>> Texts);
 internal sealed record BonusDraft(BonusBlueprint Source,Dictionary<int,string> Values)
 {
@@ -30,7 +30,7 @@ internal static class BonusSpells
         var schemas=await Query(db,null,"SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='foreverclassic_hotfixes' AND COLUMN_NAME='SpellID' ORDER BY TABLE_NAME");
         var tables=schemas.Select(r=>r["TABLE_NAME"]!).Where(n=>n.StartsWith("spell_")).Select(n=>new BonusTable(n,DbcName(n),true)).Where(t=>File.Exists(Path.Combine(CatalogRepository.Db2Folder,t.Dbc+".db2"))).Prepend(new("spell_name","SpellName",false)).ToList();
         var allNames=schemas.Select(r=>r["TABLE_NAME"]!).Where(n=>n.StartsWith("spell_")).ToHashSet();if(allNames.Except(tables.Select(t=>t.Sql)).Any())throw new InvalidOperationException("Some spell dependencies have no installed definition; isolated value editing is unavailable for this client layout.");
-        string fingerprint=Fingerprint(tables);var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider());
+        string fingerprint=Fingerprint(tables);var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
         var effects=await Task.Run(()=>TooltipData.LoadTable(reader,"SpellEffect"));
         var texts=await Task.Run(()=>TooltipData.LoadTable(reader,"Spell"));
         using var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
@@ -75,10 +75,11 @@ internal static class BonusSpells
         rows["bonus_external_triggers"]=await Query(db,tx,$"SELECT * FROM spell_effect WHERE EffectTriggerSpell IN({Ids(scope.OwnedSpells)}) AND SpellID NOT IN({Ids(scope.OwnedSpells)}) ORDER BY ID,VerifiedBuild"+suffix);
         return new(rows);
     }
-    internal static bool Editable(Dictionary<string,string> row)=>new[]{"ScalingClass","Coefficient","Variance","EffectRealPointsPerLevel","EffectBonusCoefficient","BonusCoefficientFromAP","EffectPointsPerResource","ResourceCoefficient"}.All(k=>TooltipData.Amount(row,k)==0);
+    internal static bool FixedAmount(Dictionary<string,string> row)=>new[]{"ScalingClass","Coefficient","Variance","EffectRealPointsPerLevel","EffectBonusCoefficient","BonusCoefficientFromAP","EffectPointsPerResource","ResourceCoefficient"}.All(k=>TooltipData.Amount(row,k)==0);
+    internal static bool Editable(Dictionary<string,string> row)=>BonusValueRules.For(row).Supported;
     internal static void Validate(BonusDraft draft)
     {
-        foreach(var (id,value) in draft.Values){var row=draft.Source.Rows["spell_effect"].SingleOrDefault(r=>N(r,"ID")==id);if(row is null||!Editable(row)||!float.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out float n)||!float.IsFinite(n)||Math.Abs(n)>1000000)throw new InvalidOperationException("Enter a finite fixed bonus value between -1,000,000 and 1,000,000. Scaling effects need dedicated support.");}
+        foreach(var (id,value) in draft.Values){var row=draft.Source.Rows["spell_effect"].SingleOrDefault(r=>N(r,"ID")==id);if(row is null)throw new InvalidOperationException("The edited effect does not belong to this bonus.");BonusValueRules.Validate(row,value);}
     }
     private static Dictionary<string,string> RemapText(Dictionary<string,string> source,Dictionary<int,int> map){var copy=new Dictionary<string,string>(source,StringComparer.OrdinalIgnoreCase);foreach(string key in new[]{"Description","AuraDescription"})if(copy.TryGetValue(key,out var text))copy[key]=Regex.Replace(text,@"\$(\d+)(?=[a-zA-Z])",m=>map.TryGetValue(int.Parse(m.Groups[1].Value),out int id)?"$"+id:m.Value);return copy;}
     internal static int Preview(BonusDraft draft,TooltipData data,int seed)
@@ -106,11 +107,12 @@ internal static class BonusSpells
         var records=draft.Source.Scope.Records.ToDictionary(p=>p.Key,p=>p.Value.ToList());
         reserved["spell_name"]=checked(next+map.Count);
         foreach(var t in draft.Source.Scope.Tables){int rowId=Math.Max(await NextId(db,tx,t.Sql,t.Dbc,draft.Source.MaxIds[t.Sql]),reserved.GetValueOrDefault(t.Sql));foreach(var row in draft.Source.Rows[t.Sql])records[t.Sql].Add(t.ParentSpell?rowId++:map[N(row,"ID")]);if(t.ParentSpell)reserved[t.Sql]=rowId;}
-        var scope=draft.Source.Scope with{SpellIds=draft.Source.Scope.SpellIds.Concat(map.Values).ToArray(),Records=records.ToDictionary(p=>p.Key,p=>p.Value.ToArray()),OwnedSpells=map.Values.ToArray()};
+        var scope=draft.Source.Scope with{SpellIds=draft.Source.Scope.SpellIds.Concat(map.Values).ToArray(),Records=records.ToDictionary(p=>p.Key,p=>p.Value.ToArray()),OwnedSpells=map.Values.ToArray(),EditedEffects=draft.Source.Rows["spell_effect"].Select((r,n)=>(Id:N(r,"ID"),Target:records["spell_effect"].Skip(draft.Source.Scope.Records["spell_effect"].Length).ElementAt(n))).Where(p=>draft.Values.ContainsKey(p.Id)).Select(p=>p.Target).ToArray()};
         return (map[draft.Source.Root],scope);
     }
     internal static async Task ApplyAsync(MySqlConnection db,MySqlTransaction tx,BonusDraft draft,BonusScope scope)
     {
+        Validate(draft);
         var map=draft.Source.Scope.SpellIds.Zip(scope.OwnedSpells).ToDictionary(p=>p.First,p=>p.Second);
         foreach(var t in scope.Tables){
             var added=scope.Records[t.Sql].Except(draft.Source.Scope.Records[t.Sql]).ToArray();int index=0;
@@ -136,11 +138,15 @@ internal static class BonusSpells
     }
     internal static BonusScope Merge(IEnumerable<BonusScope> scopes)
     {
-        var all=scopes.ToArray();return new(all.SelectMany(s=>s.SpellIds).Distinct().ToArray(),all.SelectMany(s=>s.Records).GroupBy(p=>p.Key).ToDictionary(g=>g.Key,g=>g.SelectMany(p=>p.Value).Distinct().ToArray()),all.SelectMany(s=>s.OwnedSpells).Distinct().ToArray(),all[0].Fingerprint,all[0].Tables);
+        var all=scopes.ToArray();return new(all.SelectMany(s=>s.SpellIds).Distinct().ToArray(),all.SelectMany(s=>s.Records).GroupBy(p=>p.Key).ToDictionary(g=>g.Key,g=>g.SelectMany(p=>p.Value).Distinct().ToArray()),all.SelectMany(s=>s.OwnedSpells).Distinct().ToArray(),all[0].Fingerprint,all[0].Tables,all.SelectMany(s=>s.EditedEffects??[]).Distinct().ToArray());
     }
     internal static async Task RestoreAsync(MySqlConnection db,MySqlTransaction tx,BonusScope scope,ItemSnapshot target)
     {
         if(Fingerprint(scope.Tables)!=scope.Fingerprint)throw new InvalidOperationException("Client spell definitions changed; automatic restoration is blocked.");
+        foreach(var row in target.Tables["bonus_spell_effect"].Where(r=>scope.OwnedSpells.Contains(int.Parse(r["SpellID"]!)))){
+            var fields=row.ToDictionary(p=>p.Key,p=>p.Value??"",StringComparer.OrdinalIgnoreCase);
+            if(scope.EditedEffects?.Contains(N(fields,"ID"))==true||(scope.EditedEffects is null&&Editable(fields)))BonusValueRules.Validate(fields,fields.GetValueOrDefault("EffectBasePointsF")??fields.GetValueOrDefault("EffectBasePoints")??"0");
+        }
         foreach(var t in scope.Tables){
             var allCurrent=await Query(db,tx,$"SELECT * FROM {t.Sql} WHERE {(t.ParentSpell?"SpellID":"ID")} IN({Ids(scope.OwnedSpells)})");
             var wanted=target.Tables["bonus_"+t.Sql].Where(r=>scope.OwnedSpells.Contains(int.Parse(r[t.ParentSpell?"SpellID":"ID"]!))).ToList();

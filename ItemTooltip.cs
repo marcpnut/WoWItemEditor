@@ -28,8 +28,8 @@ internal static class ItemTooltip
         void Gap()=>Add("",size:5);
         Add(item.Name,item.NameBrush.ToString(),size:18,bold:true);
         if(!item.Fields.ContainsKey("Display")){Add("Item definition unavailable in the installed DB2 and active database overrides.",Gray);return lines;}
-        var values=data.Calculations.Evaluate(item,previewLevel,instance);
-        Add($"Item Level {(values.ItemLevel?.ToString()??"[scales]")}",Gold);
+        var values=data.Calculations.Evaluate(item,previewLevel,instance);bool missing=values.Note.StartsWith("MISSING SERVER DATA:",StringComparison.Ordinal);string unresolved=missing?"[missing server data]":"[scales]";if(missing)Add(values.Note+" · Saving this definition is blocked.","#FF6060");
+        Add($"Item Level {(values.ItemLevel?.ToString()??unresolved)}",Gold);
         string binding=item.Number("Bonding") switch {1=>"Binds when picked up",2=>"Binds when equipped",3=>"Binds when used",4 or 5=>"Quest Item",_=>""};
         if(binding.Length>0)Add(binding);
         if(item.Number("MaxCount")==1)Add("Unique");

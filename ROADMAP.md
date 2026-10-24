@@ -17,5 +17,7 @@ The user verified item revert and inactive history removal in game. Server-suppl
 - Extend comparisons with verified enchant/gem totals, equip proficiencies and talent-specific hand rules. Current comparisons use base definitions and mark unsupported instance modifiers unresolved.
 - Validate newly duplicated item appearance, equip behavior and server reload in game before expanding into custom model editing.
 
-- Next requested iteration: choose specific bosses as item-drop sources, with reviewed boss loot changes and reversible history.
+- Instance/boss-only drop assignment is implemented with reviewed loot changes and reversible history. Continue live testing of boss drops.
 - Verify newly created sets, privately edited bonuses and world drops in the running custom server; current checks verify persisted definitions and rollback, not live loot rolls.
+
+Implemented after the crash review: effective calculation-row safety gates, immediate stat draft updates, named material filters, readable allowed classes, instance/boss-only drops, searchable aura/effect choices, explained and bounded private bonus values, and Modify created sets with duplicate additions, non-destructive member removal, rename and transactional history. See SERVER_SAFETY.md for observed table bounds and the limits of crash diagnosis without matching symbols.

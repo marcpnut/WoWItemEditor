@@ -18,6 +18,7 @@ public sealed class CatalogItem
     public int ClassId => Fields.ContainsKey("ClassID") ? Number("ClassID") : -1;
     public string QualityName => Qualities.ElementAtOrDefault(Quality) ?? $"Quality {Quality}";
     public string SlotName => Slots.GetValueOrDefault(Slot) ?? $"Slot {Slot}";
+    public string SubtypeName=>ItemKinds.Name(this);
     public string TypeName => Classes.GetValueOrDefault(ClassId) ?? "Unknown";
     public string Source => !Fields.ContainsKey("OverallQualityID")?"Definition unavailable":Overridden ? "MariaDB override" : "Server DB2";
     public Brush NameBrush => new SolidColorBrush((Color)ColorConverter.ConvertFromString(Colors.ElementAtOrDefault(Quality) ?? "#FFFFFF"));

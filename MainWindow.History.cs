@@ -23,6 +23,7 @@ public partial class MainWindow
             HistoryType.ItemsSource=new[]{new FilterChoice(-1,"All item types")}.Concat(CatalogItem.Classes.Select(p=>new FilterChoice(p.Key,p.Value))).ToList();
             HistoryRarity.SelectedIndex=HistorySlot.SelectedIndex=HistoryType.SelectedIndex=0;
         }
+        ItemKinds.Bind(HistorySubtype,result.Tooltips,(HistoryType.SelectedItem as FilterChoice)?.Id??-1);
         int set=(HistorySet.SelectedItem as FilterChoice)?.Id??-1;
         HistorySet.ItemsSource=new[]{new FilterChoice(-1,"All equipment sets")}.Concat(result.Tooltips.Sets.Values.OrderBy(s=>s.Name).ThenBy(s=>s.Id).Select(s=>new FilterChoice(s.Id,$"{s.Name} · Set {s.Id}"))).ToList();
         HistorySet.SelectedItem=HistorySet.Items.Cast<FilterChoice>().FirstOrDefault(s=>s.Id==set)??HistorySet.Items[0];
@@ -49,7 +50,7 @@ public partial class MainWindow
         Status.Inlines.Add(new Run(" · Installed DB2 build 70450"));
     }
     private void HistoryFilterChanged(object sender,RoutedEventArgs e)
-    {if(HistoryGrid is not null)ApplyHistoryFilters();}
+    {if(ReferenceEquals(sender,HistoryType)&&HistorySubtype is not null&&loadedCatalog is not null)ItemKinds.Bind(HistorySubtype,loadedCatalog.Tooltips,(HistoryType.SelectedItem as FilterChoice)?.Id??-1);if(HistoryGrid is not null)ApplyHistoryFilters();}
     private void ApplyHistoryFilters()
     {
         if(historyView is null||loadedCatalog is null)return;
@@ -58,7 +59,7 @@ public partial class MainWindow
         int rarity=(HistoryRarity.SelectedItem as FilterChoice)?.Id??-1,slot=(HistorySlot.SelectedItem as FilterChoice)?.Id??-1,type=(HistoryType.SelectedItem as FilterChoice)?.Id??-1,set=(HistorySet.SelectedItem as FilterChoice)?.Id??-1;
         if(!TryLevel(HistoryMinLevel.Text,out int min)||!TryLevel(HistoryMaxLevel.Text,out int max)||HistoryMinLevel.Text.Length>0&&HistoryMaxLevel.Text.Length>0&&min>max){HistoryCount.Text="Enter a valid required-level range. The previous filter remains applied.";return;}
         historyView.Filter=value=>value is OverrideEntry entry&&entry.OriginalItem is not null&&(!entry.Hidden||entry.Active||ShowRemovedHistory.IsChecked==true)&&(state!=1||entry.Active)&&(state!=2||!entry.Active)&&(activity!=1||entry.Activity.Count>0)&&(activity!=2||entry.Activity.Count==0)
-            &&Matches(entry.ModifiedItem,"",rarity,slot,type,HistoryMinLevel.Text.Length>0?min:null,HistoryMaxLevel.Text.Length>0?max:null)&&(set<0||entry.ModifiedItem.Number("ItemSet")==set||loadedCatalog.Tooltips.Sets.GetValueOrDefault(set)?.Members.Contains(entry.Id)==true)
+            &&ItemKinds.Matches(HistorySubtype,entry.ModifiedItem)&&Matches(entry.ModifiedItem,"",rarity,slot,type,HistoryMinLevel.Text.Length>0?min:null,HistoryMaxLevel.Text.Length>0?max:null)&&(set<0||entry.ModifiedItem.Number("ItemSet")==set||loadedCatalog.Tooltips.Sets.GetValueOrDefault(set)?.Members.Contains(entry.Id)==true)
             &&(query.Length==0||entry.Name.Contains(query,StringComparison.OrdinalIgnoreCase)||entry.Id.ToString()==query||entry.Fields.Any(f=>f.Changed&&f.Field.Contains(query,StringComparison.OrdinalIgnoreCase)));
         SetHistoryCount();
         var visible=historyView.Cast<OverrideEntry>().ToList();
@@ -113,7 +114,7 @@ public partial class MainWindow
         OriginalHistoryScroll.ScrollToTop();ModifiedHistoryScroll.ScrollToTop();
     }
     private void ClearHistoryFilters(object sender,RoutedEventArgs e)
-    {HistorySearch.Clear();HistoryRarity.SelectedIndex=HistorySlot.SelectedIndex=HistoryType.SelectedIndex=HistorySet.SelectedIndex=0;HistoryMinLevel.Clear();HistoryMaxLevel.Clear();ApplyHistoryFilters();}
+    {HistorySearch.Clear();HistoryRarity.SelectedIndex=HistorySlot.SelectedIndex=HistoryType.SelectedIndex=HistorySet.SelectedIndex=0;HistorySubtype.SelectedIndex=0;HistoryMinLevel.Clear();HistoryMaxLevel.Clear();ApplyHistoryFilters();}
     private async void ReviewRevert(object sender,RoutedEventArgs e)=>await ReviewHistoryAction(false);
     private async void ReviewReapply(object sender,RoutedEventArgs e)=>await ReviewHistoryAction(true);
     private async void RemoveHistory(object sender,RoutedEventArgs e)

@@ -17,6 +17,7 @@ public sealed class CharacterItemRow
     public string Name=>Item.Name+(Item.Fields.ContainsKey("Display")?"":" [definition unavailable]");
     public Brush NameBrush=>Item.NameBrush;
     public string Location=>Instance.Location;
+    public string SubtypeName=>Item.SubtypeName;
     public int Count=>Instance.Count;
     public int Id=>Item.Id;
     public int? RequiredLevel=>Item.Fields.ContainsKey("RequiredLevel")?Item.RequiredLevel:null;

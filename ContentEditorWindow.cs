@@ -10,6 +10,7 @@ internal sealed record ContentChoice(int Id,string Name){public string Label=>$"
 internal sealed class ContentEditorWindow : Window
 {
     private readonly string kind;
+    private readonly ItemKindFilter itemKinds;
     private readonly CatalogResult catalog;
     private ReferenceCatalog references;
     private readonly List<ContentChoice> choices;
@@ -36,14 +37,14 @@ internal sealed class ContentEditorWindow : Window
     private readonly int? initialSpellId;
     internal ContentEditorWindow(string kind,CatalogResult catalog,ReferenceCatalog references,int? initialId=null,int? initialSpellId=null)
     {
-        this.kind=kind;this.catalog=catalog;this.references=references;this.initialSpellId=initialSpellId;
+        this.kind=kind;itemKinds=new(catalog.Tooltips);this.catalog=catalog;this.references=references;this.initialSpellId=initialSpellId;
         Title=kind=="Set"?"Set-bonus editor":"Weapon-proc editor";Width=1380;Height=870;MinWidth=1120;MinHeight=700;WindowStartupLocation=WindowStartupLocation.CenterOwner;Background=new SolidColorBrush(Color.FromRgb(35,36,40));
         choices=kind=="Set"?catalog.Tooltips.Sets.Values.Where(s=>s.Members.Length>0).Select(s=>new ContentChoice(s.Id,s.Name)).OrderBy(c=>c.Name).ToList():catalog.Items.Where(i=>i.ClassId==2).Select(i=>new ContentChoice(i.Id,i.Name)).OrderBy(c=>c.Name).ToList();
         var layout=new DockPanel{Margin=new Thickness(20),Background=Background};Content=layout;
         heading.Text=Title;DockPanel.SetDock(heading,Dock.Top);layout.Children.Add(heading);
         feedback.Text="Choose "+(kind=="Set"?"an equipment set. Set membership stays unchanged.":"a weapon. Shared spell definitions stay unchanged.");feedback.Margin=new Thickness(0,12,0,0);feedback.MaxHeight=80;DockPanel.SetDock(feedback,Dock.Bottom);layout.Children.Add(feedback);
         var body=new Grid();body.ColumnDefinitions.Add(new(){Width=new GridLength(245)});body.ColumnDefinitions.Add(new(){Width=new GridLength(16)});body.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(body);
-        var left=new DockPanel();body.Children.Add(left);var searchLabel=new TextBlock{Text=kind=="Set"?"Find set name or ID":"Find weapon name or ID",Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(searchLabel,Dock.Top);left.Children.Add(searchLabel);DockPanel.SetDock(search,Dock.Top);search.Margin=new Thickness(0,0,0,10);left.Children.Add(search);left.Children.Add(entities);
+        var left=new DockPanel();body.Children.Add(left);var searchLabel=new TextBlock{Text=kind=="Set"?"Find set name or ID":"Find weapon name or ID",Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(searchLabel,Dock.Top);left.Children.Add(searchLabel);DockPanel.SetDock(search,Dock.Top);search.Margin=new Thickness(0,0,0,10);left.Children.Add(search);if(kind=="Proc"){DockPanel.SetDock(itemKinds,Dock.Top);left.Children.Add(itemKinds);itemKinds.Changed+=FilterWeapons;}left.Children.Add(entities);
         entities.Background=new SolidColorBrush(Color.FromRgb(40,42,47));entities.Foreground=Brushes.LightGray;entities.BorderThickness=new Thickness(0);entities.ItemsSource=choices;
         var right=new Grid();Grid.SetColumn(right,2);body.Children.Add(right);right.RowDefinitions.Add(new(){Height=GridLength.Auto});right.RowDefinitions.Add(new(){Height=new GridLength(140)});right.RowDefinitions.Add(new(){Height=GridLength.Auto});right.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});
         var actions=new WrapPanel{Margin=new Thickness(0,0,0,10)};right.Children.Add(actions);
@@ -69,7 +70,7 @@ internal sealed class ContentEditorWindow : Window
         AddPreview(previews,currentPreview,"CURRENT · BEFORE SAVE",0);AddPreview(previews,draftPreview,"DRAFT · AFTER SAVE",2);
         rows.SelectionChanged+=(_,_)=>LoadRow();draft.CollectionChanged+=(_,_)=>{save.IsEnabled=session is not null&&!busy&&ContentEditing.Changed(session,draft);RenderPreviews();};
         add.Click+=(_,_)=>PickSpell(false);change.Click+=(_,_)=>PickSpell(true);remove.Click+=(_,_)=>{if(rows.SelectedItem is ContentRow row)draft.Remove(row);};save.Click+=async(_,_)=>await Save();
-        search.TextChanged+=(_,_)=>{entities.ItemsSource=choices.Where(c=>c.Id.ToString()==search.Text.Trim()||c.Name.Contains(search.Text.Trim(),StringComparison.OrdinalIgnoreCase)).ToList();};
+        search.TextChanged+=(_,_)=>FilterWeapons();
         entities.SelectionChanged+=async(_,_)=>{if(selecting||entities.SelectedItem is not ContentChoice target)return;if(!ConfirmDiscard()){selecting=true;entities.SelectedItem=choice;selecting=false;return;}await SelectAsync(target);};
         Closing+=(_,e)=>{if(busy||!ConfirmDiscard())e.Cancel=true;};
         Loaded+=async(_,_)=>{if(initialId.HasValue){selecting=true;entities.SelectedItem=choices.FirstOrDefault(c=>c.Id==initialId);selecting=false;if(entities.SelectedItem is ContentChoice c)await SelectAsync(c);}};
@@ -77,6 +78,7 @@ internal sealed class ContentEditorWindow : Window
     }
     private bool ConfirmDiscard()=>session is null||!ContentEditing.Changed(session,draft)||MessageBox.Show(this,"Discard the unsaved draft?","Unsaved changes",MessageBoxButton.YesNo,MessageBoxImage.Question)==MessageBoxResult.Yes;
     private void SetEnabled(bool enabled){controls.IsEnabled=rows.IsEnabled=add.IsEnabled=change.IsEnabled=remove.IsEnabled=enabled;save.IsEnabled=enabled&&session is not null&&ContentEditing.Changed(session,draft);}
+    private void FilterWeapons(){var byId=catalog.Items.ToDictionary(i=>i.Id);entities.ItemsSource=choices.Where(c=>(kind!="Proc"||byId.TryGetValue(c.Id,out var item)&&itemKinds.Matches(item))&&(c.Id.ToString()==search.Text.Trim()||c.Name.Contains(search.Text.Trim(),StringComparison.OrdinalIgnoreCase))).ToList();}
     internal async Task SelectAsync(ContentChoice selected)
     {
         int token=++request;choice=selected;Title=(kind=="Set"?"Set-bonus editor · ":"Weapon-proc editor · ")+selected.Label;session=null;SetEnabled(false);draft.Clear();feedback.Text="Loading current definitions…";

@@ -4,6 +4,7 @@ namespace AnoWowItemEditor;
 public partial class MainWindow
 {
     private bool editorLoading;
+    private async void OpenCreatedSets(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var window=new CreatedSetsWindow(loadedCatalog,await EditorReferences()){Owner=this};window.ShowDialog();if(window.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open created sets: "+ex.Message;}finally{editorLoading=false;}}
     private async void OpenSetCreator(object sender,RoutedEventArgs e)
     {
         if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var creator=new SetCreatorWindow(loadedCatalog,await EditorReferences()){Owner=this};creator.ShowDialog();if(creator.Result is {} result){references=null;referenceLoad=null;await LoadCatalog();var designer=new DesignerWindow(loadedCatalog!,result.Items[0],2){Owner=this};designer.SelectCreatedSet(result.SetId);designer.ShowDialog();if(designer.Saved)await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open set creator: "+ex.Message;}finally{editorLoading=false;}
@@ -43,6 +44,6 @@ public partial class MainWindow
     }
     private async void OpenContentHistory(object sender,RoutedEventArgs e)
     {
-        if(editorLoading)return;editorLoading=true;try{var history=new ContentHistoryWindow(await EditorReferences()){Owner=this};history.ShowDialog();if(history.Changed){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open edit history: "+ex.Message;}finally{editorLoading=false;}
+        if(editorLoading)return;editorLoading=true;try{var history=new ContentHistoryWindow(await EditorReferences(),loadedCatalog){Owner=this};history.ShowDialog();if(history.Changed){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open edit history: "+ex.Message;}finally{editorLoading=false;}
     }
 }

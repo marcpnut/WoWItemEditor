@@ -1,0 +1,43 @@
+using System.Text.Json;
+using MySqlConnector;
+namespace AnoWowItemEditor;
+
+internal sealed record CreatedSetSession(int Id,string Name,Dictionary<int,CloneBlueprint> Members,SetCreationScope Scope,ItemSnapshot Expected,string Fingerprint);
+internal static class CreatedSets
+{
+    internal static async Task<CreatedSetSession> Load(int id)
+    {
+        var creation=(await ContentEditing.ListAsync()).FirstOrDefault(o=>o.Kind=="NewSet"&&o.EntityId==id&&o.Active)??throw new InvalidOperationException("Only active sets created by this editor can be modified here.");
+        using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);
+        var rows=await WorldDrops.Query(db,null,$"SELECT * FROM item_set WHERE ID={id} ORDER BY VerifiedBuild DESC");var row=rows.FirstOrDefault()??throw new InvalidOperationException("This created set is no longer present. Refresh the catalog.");
+        var ids=Enumerable.Range(1,17).Select(n=>int.TryParse(row.GetValueOrDefault("ItemID"+n),out int value)?value:0).Where(n=>n>0).Distinct().ToArray();var members=new Dictionary<int,CloneBlueprint>();foreach(int item in ids){var loaded=await ItemCloning.LoadAsync(item);if(loaded.Item.Native is not null||loaded.Item.Current.Number("ItemSet")!=id)throw new InvalidOperationException("Set membership is inconsistent or contains a native original. Repair the definition before modifying it.");members[item]=loaded;}
+        var bonuses=await WorldDrops.Query(db,null,$"SELECT ID FROM item_set_spell WHERE ItemSetID={id}");var scope=new SetCreationScope(id,members.ToDictionary(p=>p.Key,p=>p.Value.SourceScope),bonuses.Select(r=>int.Parse(r["ID"]!)).Distinct().ToArray(),new([]));
+        var expected=await SetCreation.Capture(db,null,scope);
+        if(HistoryActions.Canonical(new(new(){["set"]=rows}))!=HistoryActions.Canonical(new(new(){["set"]=expected.Tables["new_set"]})))throw new InvalidOperationException("The set changed while loading. Reopen it.");
+        foreach(var (item,blueprint) in members){string prefix=$"piece_{item}_";var captured=new ItemSnapshot(expected.Tables.Where(p=>p.Key.StartsWith(prefix)).ToDictionary(p=>p.Key[prefix.Length..],p=>p.Value));if(HistoryActions.Canonical(captured)!=HistoryActions.Canonical(blueprint.SourceExpected))throw new InvalidOperationException("A set piece changed while loading. Reopen the set.");}
+        return new(id,row["Name"]??creation.Name,members,scope,expected,ContentEditing.Fingerprint());
+    }
+    internal static Task<string> Save(CreatedSetSession session,string name,int[] retained,CloneBlueprint[] additions,DropPlan[] reviewedPlans)=>ContentEditing.Transaction((db,tx)=>SaveCore(db,tx,session,name,retained,additions,reviewedPlans));
+    internal static async Task<string> SaveCore(MySqlConnection db,MySqlTransaction tx,CreatedSetSession session,string name,int[] retained,CloneBlueprint[] additions,DropPlan[]? reviewedPlans=null)
+    {
+        if(string.IsNullOrWhiteSpace(name)||name.Length>200||name.Contains('\0'))throw new InvalidOperationException("Enter a set name of 1–200 characters.");
+        if(retained.Distinct().Count()!=retained.Length||retained.Any(id=>!session.Members.ContainsKey(id)))throw new InvalidOperationException("Invalid existing member selection.");
+        int count=retained.Length+additions.Length;if(count is <2 or >17)throw new InvalidOperationException("A set needs 2–17 members. Shirt and tabard cannot count as set pieces.");
+        if(session.Fingerprint!=ContentEditing.Fingerprint()||HistoryActions.Canonical(await SetCreation.Capture(db,tx,session.Scope,true))!=HistoryActions.Canonical(session.Expected))throw new InvalidOperationException("Conflict: this set, its items or bonuses changed. Reopen the set before saving.");
+        var items=retained.Select(id=>session.Members[id].Item.Current).Concat(additions.Select(a=>a.Item.Current)).ToArray();if(items.Any(i=>i.Slot is 0 or 4 or 19||!GearDesign.Targets(i).Any()))throw new InvalidOperationException("Choose equippable set pieces other than shirts and tabards.");
+        int classes=-1;foreach(var item in items){int mask=item.Number("AllowableClass");if(mask>0)classes&=mask;}if(classes==0)throw new InvalidOperationException("These set pieces have no allowed class in common.");
+        if(session.Expected.Tables["new_set_bonuses"].Any(r=>int.Parse(r["Threshold"]!)>count))throw new InvalidOperationException("A bonus requires more pieces than this draft contains. Lower its threshold in Edit set bonuses first, then reopen the set.");
+        if(name==session.Name&&retained.Length==session.Members.Count&&additions.Length==0)throw new InvalidOperationException("There are no membership or name changes to save.");
+        var world=additions.Length>0?await WorldDropCatalog.LoadAsync(db,tx):null;var clones=new List<CloneResult>();if(reviewedPlans is not null&&(reviewedPlans.Length!=additions.Length||reviewedPlans.Any(p=>p.Mode!="World"||p.Chance!=0.01m||p.InputFingerprint!=world?.Fingerprint)))throw new InvalidOperationException("World-drop data changed since review. Reopen the membership review.");
+        foreach(var source in additions){var fields=new Dictionary<string,string>(source.Item.Current.Fields,StringComparer.OrdinalIgnoreCase){["ItemSet"]=session.Id.ToString()};var draft=new CatalogItem(fields);var plan=WorldDrops.Replan(world!,draft,reviewedPlans?[clones.Count]??world!.Plan(draft,0.01m));if(plan.Targets.Count==0)throw new InvalidOperationException($"{draft.Name} has no eligible default world drops. Choose a base item with supported level and drop data.");var clone=await ItemCloning.SaveCoreAsync(db,tx,source,draft,false);clones.Add(clone);await WorldDrops.Apply(db,tx,clone.Id,plan,draft.Name);}
+        var copies=new Dictionary<int,CloneScope>(session.Scope.Copies);foreach(var clone in clones)copies[clone.Id]=clone.Scope!;var scope=session.Scope with{Copies=copies,Drops=new(clones.Select(c=>c.Id).ToArray())};
+        // Original existing-piece state comes from the conflict-checked session, new IDs from their pre-copy snapshots.
+        var before=await SetCreation.Capture(db,tx,scope,true);foreach(var pair in session.Expected.Tables)before.Tables[pair.Key]=pair.Value;foreach(var clone in clones)foreach(var pair in clone.Before!.Tables)before.Tables[$"piece_{clone.Id}_{pair.Key}"]=pair.Value;
+        if(clones.Count>0){var emptyDrops=await WorldDrops.Capture(db,tx,new([]));foreach(var pair in emptyDrops)before.Tables[pair.Key]=pair.Value;}
+        foreach(int removed in session.Members.Keys.Except(retained)){using var cmd=new MySqlCommand("UPDATE item_sparse SET ItemSet=0 WHERE ID=@id",db,tx);cmd.Parameters.AddWithValue("@id",removed);await cmd.ExecuteNonQueryAsync();await ContentEditing.Register(db,tx,"item_sparse",removed);}
+        var row=new Dictionary<string,string?>(session.Expected.Tables["new_set"].First(),StringComparer.OrdinalIgnoreCase){["Name"]=name};int[] members=retained.Concat(clones.Select(c=>c.Id)).ToArray();for(int n=1;n<=17;n++)row["ItemID"+n]=n<=members.Length?members[n-1].ToString():"0";using(var delete=new MySqlCommand($"DELETE FROM item_set WHERE ID={session.Id}",db,tx))await delete.ExecuteNonQueryAsync();await ContentEditing.Upsert(db,tx,"item_set",row);await ContentEditing.Register(db,tx,"item_set",session.Id);
+        var after=await SetCreation.Capture(db,tx,scope,true);await ItemSaveSafety.ValidateSnapshot(db,tx,after);string op=Guid.NewGuid().ToString();var content=new ContentScope("SetMembers",session.Id,[],[],[],[],Creation:scope);
+        using(var cmd=new MySqlCommand($"INSERT INTO {ContentEditing.Operations}(OperationId,Kind,EntityId,Name,IsActive,IsHidden,Version,BeforeJson,AfterJson,ExpectedJson,ScopeJson,Fingerprint,RecordedUtc) VALUES(@op,'SetMembers',@id,@name,1,0,1,@before,@after,@after,@scope,@fp,UTC_TIMESTAMP(6))",db,tx)){cmd.Parameters.AddWithValue("@op",op);cmd.Parameters.AddWithValue("@id",session.Id);cmd.Parameters.AddWithValue("@name",name);cmd.Parameters.AddWithValue("@before",HistoryActions.Serialize(before));cmd.Parameters.AddWithValue("@after",HistoryActions.Serialize(after));cmd.Parameters.AddWithValue("@scope",JsonSerializer.Serialize(content));cmd.Parameters.AddWithValue("@fp",ContentEditing.Fingerprint());await cmd.ExecuteNonQueryAsync();}
+        await ContentEditing.Audit(db,tx,content,"Modify created set",name,op,before,after);return op;
+    }
+}

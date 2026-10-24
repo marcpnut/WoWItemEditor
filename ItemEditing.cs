@@ -9,6 +9,7 @@ internal sealed record ItemEditSession(CatalogItem Current,CatalogItem? Native,D
 {
     internal string IdentityFingerprint {get;init;}="";
     internal bool ManagedDrops {get;init;}
+    internal ItemCalculations Calculations {get;init;}=new();
 }
 internal static class ItemEditing
 {
@@ -19,7 +20,7 @@ internal static class ItemEditing
         string fingerprint=ContentEditing.Fingerprint(),identityFingerprint=IdentityFingerprint();
         var native=await Task.Run(()=>{
             var sparse=CatalogRepository.LoadBaseline().GetValueOrDefault(id);
-            var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider());
+            var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
             return (Sparse:sparse,Identity:TooltipData.LoadTable(reader,"Item").GetValueOrDefault(id)??new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));
         });
         using var ownedDb=connection is null?await DatabaseConnection.OpenAsync(CatalogRepository.Database):null;var db=connection??ownedDb!;
@@ -32,14 +33,16 @@ internal static class ItemEditing
         var item=HotfixReader.Merge(native.Identity,identity.ActiveRows.GetValueOrDefault(id)??new Dictionary<string,string>());
         foreach(string key in new[]{"ClassID","SubclassID"})if(item.TryGetValue(key,out var value))fields[key]=value;
         var columns=new List<ItemColumn>();using(var cmd=new MySqlCommand("SHOW COLUMNS FROM item_sparse",db,tx))using(var r=await cmd.ExecuteReaderAsync())while(await r.ReadAsync())columns.Add(new(Convert.ToString(r["Field"])!,Convert.ToString(r["Type"])!,Convert.ToString(r["Null"])=="YES",r["Default"] is DBNull?null:Convert.ToString(r["Default"],CultureInfo.InvariantCulture)));
+        var calculations=await ItemCalculations.LoadAsync(db,new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true)),true,tx);
         if(ownedTx is not null)await tx.CommitAsync();if(fingerprint!=ContentEditing.Fingerprint()||identityFingerprint!=IdentityFingerprint())throw new InvalidOperationException("Client definitions changed while loading; reopen this item.");
         int build=payload is not null?int.Parse(payload["VerifiedBuild"]):snapshot.Tables["item_sparse"].OrderBy(r=>r["VerifiedBuild"]=="0"?0:1).FirstOrDefault() is {} retained?int.Parse(retained["VerifiedBuild"]!):0;
         int identityBuild=identity.ActiveRows.TryGetValue(id,out var active)?int.Parse(active["VerifiedBuild"]):0;
-        return new(new(fields,payload is not null),native.Sparse?.Fields.ContainsKey("Display")==true?native.Sparse:null,item,native.Identity,snapshot,fingerprint,columns,build,identityBuild){IdentityFingerprint=identityFingerprint,ManagedDrops=managedDrops};
+        return new(new(fields,payload is not null),native.Sparse?.Fields.ContainsKey("Display")==true?native.Sparse:null,item,native.Identity,snapshot,fingerprint,columns,build,identityBuild){IdentityFingerprint=identityFingerprint,ManagedDrops=managedDrops,Calculations=calculations};
     }
     internal static List<FieldComparison> Changes(ItemEditSession session,CatalogItem draft)=>OverrideEntry.Compare(session.Current,draft).Where(f=>f.Changed).ToList();
     internal static void Validate(ItemEditSession session,CatalogItem draft)
     {
+        var problems=session.Calculations.ServerProblems(draft);if(problems.Count>0)throw new InvalidOperationException("Save blocked: "+string.Join(" ",problems)+" A missing server lookup can crash worldserver. [scales] never means a missing table row is safe.");
         if(draft.Id!=session.Current.Id)throw new InvalidOperationException("The item ID cannot be changed.");
         if(!int.TryParse(draft.Text("ClassID"),out int itemClass)||itemClass is <0 or >18||!int.TryParse(draft.Text("SubclassID"),out int subclass)||subclass is <0 or >255)throw new InvalidOperationException("Item class and subclass must be valid whole numbers.");
         if(string.IsNullOrWhiteSpace(draft.Name)||string.IsNullOrWhiteSpace(draft.Text("Display")))throw new InvalidOperationException("Enter an item name.");
@@ -60,6 +63,7 @@ internal static class ItemEditing
     internal static async Task<string> SaveCoreAsync(MySqlConnection db,MySqlTransaction tx,ItemEditSession session,CatalogItem draft)
     {
         Validate(session,draft);if(Changes(session,draft).Count==0)throw new InvalidOperationException("No item fields have changed.");
+        var freshCalculations=await ItemCalculations.LoadAsync(db,new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true)),true,tx);var unsafeRows=freshCalculations.ServerProblems(draft);if(unsafeRows.Count>0)throw new InvalidOperationException("Save blocked after refreshing server tables: "+string.Join(" ",unsafeRows));
         int id=session.Current.Id;var scope=new ContentScope("Item",id,[id],[],session.Native is null?[]:[id],session.NativeIdentity.Count==0?[]:[id],ItemFingerprint:session.IdentityFingerprint,Drops:session.ManagedDrops?new([id]):null);
         var before=await ContentEditing.CaptureAsync(db,tx,scope,true);
         if(ContentEditing.Fingerprint()!=session.Fingerprint||IdentityFingerprint()!=session.IdentityFingerprint||HistoryActions.Canonical(before)!=HistoryActions.Canonical(session.Expected))throw new InvalidOperationException("Conflict: this item changed after loading. Reload the item before saving.");
@@ -82,7 +86,7 @@ internal static class ItemEditing
             }
             await ContentEditing.Upsert(db,tx,"item",identity);await ContentEditing.Register(db,tx,"item",id);
         }
-        if(session.ManagedDrops&&new[]{"ItemLevel","RequiredLevel"}.Any(k=>!OverrideEntry.Equivalent(session.Current.Text(k),draft.Text(k)))){decimal chance=decimal.Parse(session.Expected.Tables["world_drop_policy"].Single()["Chance"]!,CultureInfo.InvariantCulture);var world=await WorldDropCatalog.LoadAsync(db,tx);await WorldDrops.Apply(db,tx,id,world.Plan(draft,chance),draft.Name);}
+        if(session.ManagedDrops&&new[]{"ItemLevel","RequiredLevel"}.Any(k=>!OverrideEntry.Equivalent(session.Current.Text(k),draft.Text(k)))){decimal chance=decimal.Parse(session.Expected.Tables["world_drop_policy"].Single()["Chance"]!,CultureInfo.InvariantCulture);var world=await WorldDropCatalog.LoadAsync(db,tx);await WorldDrops.Apply(db,tx,id,WorldDrops.Replan(world,draft,JsonSerializer.Deserialize<DropPlan>(session.Expected.Tables["world_drop_policy"].Single()["PlanJson"]!)!),draft.Name);}
         before=before with{OriginalItem=new(session.Current.Fields,StringComparer.OrdinalIgnoreCase)};
         var after=(await ContentEditing.CaptureAsync(db,tx,scope,true)) with{OriginalItem=new(draft.Fields,StringComparer.OrdinalIgnoreCase)};string op=Guid.NewGuid().ToString();
         using(var cmd=new MySqlCommand($"INSERT INTO {ContentEditing.Operations}(OperationId,Kind,EntityId,Name,IsActive,IsHidden,Version,BeforeJson,AfterJson,ExpectedJson,ScopeJson,Fingerprint,RecordedUtc) VALUES(@op,'Item',@id,@name,1,0,1,@before,@after,@after,@scope,@fingerprint,UTC_TIMESTAMP(6))",db,tx)){

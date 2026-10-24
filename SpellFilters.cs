@@ -11,25 +11,38 @@ internal sealed class SpellFilters : WrapPanel
     internal ComboBox Usage {get;}=new();
     internal ComboBox Description {get;}=new();
     internal event Action? Changed;
+    private bool editingOptions;
+    private List<FilterChoice> allEffects=[],allAuras=[];
     internal SpellFilters()
     {
         Margin=new Thickness(0,10,0,0);
         foreach(var (title,box) in new[]{("School",School),("Effect type",Effect),("Aura type",Aura),("Existing usage",Usage),("Description",Description)}){
-            var field=new StackPanel{Width=175,Margin=new Thickness(0,0,10,8)};field.Children.Add(new TextBlock{Text=title,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,5)});box.DisplayMemberPath="Label";box.SelectionChanged+=(_,_)=>Changed?.Invoke();field.Children.Add(box);Children.Add(field);
+            var field=new StackPanel{Width=175,Margin=new Thickness(0,0,10,8)};field.Children.Add(new TextBlock{Text=title,Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,5)});box.DisplayMemberPath="Label";box.SelectionChanged+=(_,_)=>{if(!editingOptions)Changed?.Invoke();};field.Children.Add(box);Children.Add(field);
         }
         School.ItemsSource=new[]{new FilterChoice(-1,"All schools"),new(1,"Physical"),new(2,"Holy"),new(4,"Fire"),new(8,"Nature"),new(16,"Frost"),new(32,"Shadow"),new(64,"Arcane")};
         Usage.ItemsSource=new[]{new FilterChoice(-1,"All spells"),new(1,"Used by sets"),new(2,"Used by items"),new(3,"Server proc rules"),new(4,"No set/item usage")};
         Description.ItemsSource=new[]{new FilterChoice(-1,"All descriptions"),new(1,"Has description"),new(0,"Missing description")};
-        Effect.ItemsSource=new[]{new FilterChoice(-1,"All effect types")};Aura.ItemsSource=new[]{new FilterChoice(-1,"All aura types")};Reset();
+        Effect.ItemsSource=new[]{new FilterChoice(-1,"All effect types")};Aura.ItemsSource=new[]{new FilterChoice(-1,"All aura types")};EnableTypeSearch(Effect,()=>allEffects);EnableTypeSearch(Aura,()=>allAuras);Reset();
     }
     internal void Bind(IEnumerable<ReferenceEntry> entries)
     {
         int effect=Selected(Effect),aura=Selected(Aura);
-        Effect.ItemsSource=new[]{new FilterChoice(-1,"All effect types")}.Concat(entries.SelectMany(s=>s.EffectTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Effect(n)))).ToList();
-        Aura.ItemsSource=new[]{new FilterChoice(-1,"All aura types")}.Concat(entries.SelectMany(s=>s.AuraTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Aura(n)))).ToList();
-        Effect.SelectedItem=Effect.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==effect)??Effect.Items[0];Aura.SelectedItem=Aura.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==aura)??Aura.Items[0];
+        allEffects=new[]{new FilterChoice(-1,"All effect types")}.Concat(entries.SelectMany(s=>s.EffectTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Effect(n)))).ToList();
+        allAuras=new[]{new FilterChoice(-1,"All aura types")}.Concat(entries.SelectMany(s=>s.AuraTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Aura(n)))).ToList();
+        Effect.ItemsSource=allEffects;Aura.ItemsSource=allAuras;Effect.SelectedItem=Effect.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==effect)??Effect.Items[0];Aura.SelectedItem=Aura.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==aura)??Aura.Items[0];
     }
-    internal void Reset(){foreach(var box in new[]{School,Effect,Aura,Usage,Description})box.SelectedIndex=0;Changed?.Invoke();}
+    private void EnableTypeSearch(ComboBox box,Func<List<FilterChoice>> choices)
+    {
+        box.IsEditable=true;box.IsTextSearchEnabled=false;box.StaysOpenOnEdit=true;box.ToolTip="Type a name or ID to narrow choices, then select a type.";
+        box.AddHandler(TextBox.TextChangedEvent,new TextChangedEventHandler((_,_)=>{if(editingOptions||!box.IsKeyboardFocusWithin)return;string query=box.Text;if(box.SelectedItem is FilterChoice current&&query==current.Label)return;SearchTypes(box,choices(),query);box.IsDropDownOpen=true;}));
+        box.DropDownOpened+=(_,_)=>{if(box.SelectedItem is FilterChoice selected&&box.Text==selected.Label){editingOptions=true;box.ItemsSource=choices();box.SelectedItem=choices().FirstOrDefault(c=>c.Id==selected.Id);editingOptions=false;}};
+    }
+    private void SearchTypes(ComboBox box,List<FilterChoice> choices,string query)
+    {
+        editingOptions=true;var words=query.Trim().Split(' ',StringSplitOptions.RemoveEmptyEntries);box.ItemsSource=choices.Where(c=>c.Id<0||words.All(w=>c.Label.Contains(w,StringComparison.OrdinalIgnoreCase))).ToList();box.Text=query;if(box.Template?.FindName("PART_EditableTextBox",box) is TextBox edit)edit.CaretIndex=query.Length;editingOptions=false;
+    }
+    internal void SearchAuraForVerification(string query)=>SearchTypes(Aura,allAuras,query);
+    internal void Reset(){editingOptions=true;Effect.ItemsSource=allEffects;Aura.ItemsSource=allAuras;editingOptions=false;foreach(var box in new[]{School,Effect,Aura,Usage,Description})box.SelectedIndex=0;Changed?.Invoke();}
     private static int Selected(ComboBox box)=>(box.SelectedItem as FilterChoice)?.Id??-1;
     internal bool Matches(ReferenceEntry entry)
     {

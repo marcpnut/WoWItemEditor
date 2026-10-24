@@ -31,7 +31,11 @@ public sealed class TooltipData
     internal static decimal Amount(Dictionary<string,string> row,string key) => decimal.TryParse(Read(row,key),NumberStyles.Float,CultureInfo.InvariantCulture,out var n)?n:0;
     internal static Dictionary<int,Dictionary<string,string>> LoadTable(DBCD.DBCD reader,string table,Func<Dictionary<string,string>,bool>? filter=null)
     {
-        var data=reader.Load(table,"1.60.1.70450");
+        DBCD.IDBCDStorage data;
+        for(int attempt=0;;attempt++){
+            try{data=reader.Load(table,"1.60.1.70450");break;}
+            catch(Exception ex)when(attempt<2&&NetworkFailure(ex)){Thread.Sleep(250*(attempt+1));}
+        }
         var rows=new Dictionary<int,Dictionary<string,string>>();
         foreach(var row in data.Values)
         {
@@ -49,6 +53,7 @@ public sealed class TooltipData
         }
         return rows;
     }
+    private static bool NetworkFailure(Exception ex)=>ex is System.Net.Http.HttpRequestException or TaskCanceledException||ex.InnerException is not null&&NetworkFailure(ex.InnerException);
     internal static uint Hash(string table)
     {
         using var file=File.OpenRead(Path.Combine(CatalogRepository.Db2Folder,table+".db2"));
@@ -70,7 +75,7 @@ public sealed class TooltipData
     {
         async Task Apply(string table,string db2,Dictionary<int,Dictionary<string,string>> rows){if(includeOverrides)await Overlay(db,table,db2,rows);}
         var result=new TooltipData();
-        var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider());
+        var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
         var baseline=await Task.Run(()=>new {
             Sets=LoadTable(reader,"ItemSet"),Bonuses=LoadTable(reader,"ItemSetSpell"),
             Links=LoadTable(reader,"ItemXItemEffect"),ItemEffects=LoadTable(reader,"ItemEffect"),

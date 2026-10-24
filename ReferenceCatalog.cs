@@ -25,7 +25,7 @@ internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<Referen
         string[] names=["Spell","SpellName","SpellEffect","SpellMisc","SpellDuration","SpellAuraOptions","ItemEffect","ItemXItemEffect","ItemSetSpell"];
         string[] sql=["spell","spell_name","spell_effect","spell_misc","spell_duration","spell_aura_options","item_effect","item_x_item_effect","item_set_spell"];
         var tables=await Task.Run(()=>{
-            var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider());
+            var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
             return names.ToDictionary(n=>n,n=>TooltipData.LoadTable(reader,n));
         });
         using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);
