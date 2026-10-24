@@ -126,7 +126,8 @@ public partial class MainWindow : Window
     }
     private async void RefreshClick(object sender,RoutedEventArgs e)
     {
-        if(historyMode)await LoadCatalog();
+        if(referenceMode is not null)await ShowReferencePage(referenceMode,true);
+        else if(historyMode)await LoadCatalog();
         else if(characterMode){Reload.IsEnabled=false;try{await LoadCharacters();}finally{Reload.IsEnabled=true;}}
         else await LoadCatalog();
     }
@@ -134,6 +135,8 @@ public partial class MainWindow : Window
     {
         if(CatalogPage is null) return;
         string page=(string)((RadioButton)sender).Content;
+        if(page is "Spell catalog" or "Proc catalog"){await ShowReferencePage(page);return;}
+        referenceMode=null;ReferencePage.Visibility=Visibility.Collapsed;
         if(page=="Change history"){ShowHistoryPage();return;}
         historyMode=false;HistoryPage.Visibility=Visibility.Collapsed;
         bool wasCharacter=characterMode;
@@ -400,6 +403,7 @@ public partial class MainWindow : Window
         HistorySearch.Text="__missing_history_search__";ApplyHistoryFilters();Check(historyView.IsEmpty&&HistoryGrid.SelectedItem is null,"Empty history search clears stale comparisons");HistorySearch.Clear();
         await File.WriteAllTextAsync("artifacts/history-verification.json",JsonSerializer.Serialize(new{active=result.Overrides,inactive=result.History.Entries.Count(e=>!e.Active),rows=result.History.Entries.Count,recordedItems=result.History.Entries.Count(e=>e.Activity.Count>0),recovered=new[]{catalogById[13009].Name,catalogById[14662].Name},checks="Immutable originals, native identity recovery, cross-build registrations, active/inactive filters, retained inactive payload, synchronized preview level, no fabricated original, recorded activity retained, read-only WPF comparison"},new JsonSerializerOptions{WriteIndented=true}));
         await File.WriteAllTextAsync("artifacts/verification.json",JsonSerializer.Serialize(new { items=items.Count,activeOverrides=result.Overrides,sample=new { sample.Id,sample.Name,sample.RequiredLevel,sample.Source,calculated=tooltipData.Calculations.Evaluate(sample,60) },set=new { dreadnaught.Name,pieces=dreadnaught.Members.Length,bonuses=dreadnaught.Bonuses.Select(b=>new{b.Pieces,b.SpellId,text=tooltipData.SpellDescription(b.SpellId)}) },checks="Catalog, set filtering, clickable navigation, stat/armor calculation, fixed item levels, curve interpolation, character loading, instance fallback, equipment set counts, WPF renders passed" },new JsonSerializerOptions { WriteIndented=true }));
+        await VerifyNewFeatures(result);
         Close();
     }
 }

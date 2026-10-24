@@ -6,12 +6,12 @@ namespace AnoWowItemEditor;
 
 public sealed record RecordedChange(string Id,int ItemId,string RecordedUtc,string Actor,string Action,string Summary,string Provenance,string BeforeJson,string AfterJson);
 public sealed record FieldComparison(string Field,string Original,string Modified,bool Changed,bool Known);
-public sealed record OverrideEntry(int Id,int Build,bool Active,CatalogItem? OriginalItem,CatalogItem ModifiedItem,string OriginalSource,string Source,string StateReason,List<RecordedChange> Activity)
+public sealed record OverrideEntry(int Id,int Build,bool Active,CatalogItem? OriginalItem,CatalogItem ModifiedItem,string OriginalSource,string Source,string StateReason,List<RecordedChange> Activity,bool Managed=false,bool Hidden=false)
 {
     public string Key=>$"{Id}/{Build}";
     public string Name=>ModifiedItem.Name;
     public Brush NameBrush=>ModifiedItem.NameBrush;
-    public string Status=>Active?"Active":"Inactive";
+    public string Status=>Active?"Active":Hidden?"Removed":"Inactive";
     public string RecordedUtc=>Activity.FirstOrDefault()?.RecordedUtc??"Not recorded";
     public string Attribution=>Activity.Count>0?"Recorded activity available":"Unattributed database record";
     public IReadOnlyList<FieldComparison> Fields { get; }=Compare(OriginalItem,ModifiedItem);
@@ -64,6 +64,19 @@ public sealed class HotfixHistory
         }
         var activity=events.Values.GroupBy(e=>e.ItemId).ToDictionary(g=>g.Key,g=>g.OrderByDescending(e=>e.RecordedUtc,StringComparer.Ordinal).ThenBy(e=>e.Id).ToList());
         var rows=new List<(Dictionary<string,string> Fields,string Source)>();rows.AddRange(sparse.Rows.Select(r=>(r,"Database override")));
+        var managed=new HashSet<string>();
+        var hidden=new HashSet<string>();
+        if(await HasTable(db,"anocore_studio_backup","item_editor_hidden_history")) {
+            using var cmd=new MySqlCommand("SELECT ItemId,PayloadBuild FROM anocore_studio_backup.item_editor_hidden_history",db);using var r=await cmd.ExecuteReaderAsync();while(await r.ReadAsync())hidden.Add($"{r[0]}/{r[1]}");
+        }
+        if(await HasTable(db,"anocore_studio_backup","item_editor_override_states")) {
+            using var cmd=new MySqlCommand($"SELECT ItemId,PayloadBuild,ModifiedJson FROM {HistoryActions.Archive}",db);using var r=await cmd.ExecuteReaderAsync();
+            while(await r.ReadAsync()) {
+                int id=Convert.ToInt32(r[0]),build=Convert.ToInt32(r[1]);managed.Add($"{id}/{build}");
+                if(rows.Any(row=>row.Fields.GetValueOrDefault("ID")==id.ToString(CultureInfo.InvariantCulture)&&row.Fields.GetValueOrDefault("VerifiedBuild")==build.ToString(CultureInfo.InvariantCulture)))continue;
+                var retained=SnapshotItem(r.GetString(2),id);if(retained is not null)rows.Add((retained.Fields,"Retained override archive"));
+            }
+        }
         foreach(var (id,changes) in activity)if(!rows.Any(r=>int.Parse(r.Fields["ID"],CultureInfo.InvariantCulture)==id)) {
             try {
                 var retained=changes.Select(e=>SnapshotItem(e.AfterJson,id)).FirstOrDefault(i=>i is not null);
@@ -86,7 +99,7 @@ public sealed class HotfixHistory
             else if(originals.TryGetValue(id,out var identity)){foreach(string key in new[]{"ClassID","SubclassID"})if(identity.Fields.TryGetValue(key,out var value))fields[key]=value;}
             var modified=isActive&&current.TryGetValue(id,out var now)?now:new CatalogItem(fields,true);
             string reason=isActive?"Latest registration is valid; this is the selected database payload.":source!="Database override"?"Retained snapshot; no matching database payload is active.":!sparse.Registrations.TryGetValue(id,out var registration)?"No hotfix registration is present.":$"Not selected as an active payload; latest registration status {registration.Status}.";
-            history.Entries.Add(new(id,build,isActive,baseline,modified,baseline is null?"Original definition unavailable":baselineSource,source,reason,changes));
+            history.Entries.Add(new(id,build,isActive,baseline,modified,baseline is null?"Original definition unavailable":baselineSource,source,reason,changes,managed.Contains($"{id}/{build}"),!isActive&&hidden.Contains($"{id}/{build}")));
         }
         return history;
     }
