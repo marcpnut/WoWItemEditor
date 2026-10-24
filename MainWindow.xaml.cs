@@ -209,6 +209,7 @@ public partial class MainWindow : Window
             characterSnapshot=snapshot;
             characterItems=CharacterRows(snapshot);
             PreviewLevel.Text=selected.Level.ToString();
+            ApplyPreviewLevel(this,new RoutedEventArgs());
             int unknown=characterItems.Count(i=>!i.Item.Fields.ContainsKey("Display"));
             CharacterSummary.Text=$"{selected.Name} · saved level {selected.Level} · {characterItems.Count} instances"+(unknown>0?$" · {unknown} missing definitions":"")+(selected.Online?" · Online: unsaved changes may be missing":"");
             if(characterMode)BindItems();
@@ -217,23 +218,40 @@ public partial class MainWindow : Window
     private List<CharacterItemRow> CharacterRows(CharacterSnapshot snapshot)=>snapshot.Items.Select(i=>new CharacterItemRow(i,catalogById.GetValueOrDefault(i.Entry)??new CatalogItem(new() { ["ID"]=i.Entry.ToString() }))).ToList();
     private void PreviewLevelChanged(object sender,TextChangedEventArgs e)
     {
-        if(PreviewLevel is null)return;
-        if(!int.TryParse(PreviewLevel.Text,out int level)||level<1||level>60){PreviewLevel.BorderBrush=Brushes.IndianRed;PreviewLevel.ToolTip="Enter a preview level from 1 to 60.";return;}
-        PreviewLevel.ClearValue(Control.BorderBrushProperty);PreviewLevel.ToolTip="Preview only. Never changes your saved character level.";
-        previewLevel=level;
-        if(ItemsGrid is not null)ShowTooltip(SelectedItem());
+        if(PreviewLevel is null||ApplyLevelButton is null||LevelFeedback is null)return;
+        bool valid=int.TryParse(PreviewLevel.Text,out int level)&&level is >=1 and <=60;
+        ApplyLevelButton.IsEnabled=valid;
+        if(!valid){PreviewLevel.BorderBrush=Brushes.IndianRed;LevelFeedback.Text=$"Enter a level from 1 to 60. Preview remains at level {previewLevel}.";return;}
+        PreviewLevel.ClearValue(Control.BorderBrushProperty);
+        LevelFeedback.Text=level==previewLevel?$"Applied level {previewLevel} · click Apply level to recalculate.":$"Level {level} is pending · click Apply level. Current preview: level {previewLevel}.";
     }
-    private void ResetPreviewLevel(object sender,RoutedEventArgs e)=>PreviewLevel.Text=(characterMode&&characterSnapshot is not null?characterSnapshot.Character.Level:60).ToString();
+    private void ApplyPreviewLevel(object sender,RoutedEventArgs e)
+    {
+        if(!int.TryParse(PreviewLevel.Text,out int level)||level is <1 or >60){PreviewLevelChanged(this,new TextChangedEventArgs(TextBox.TextChangedEvent,UndoAction.None));return;}
+        previewLevel=level;
+        ShowTooltip(SelectedItem());
+    }
+    private void PreviewLevelKeyDown(object sender,System.Windows.Input.KeyEventArgs e)
+    {
+        if(e.Key==System.Windows.Input.Key.Enter){ApplyPreviewLevel(sender,new RoutedEventArgs());e.Handled=true;}
+    }
+    private void ResetPreviewLevel(object sender,RoutedEventArgs e)
+    {
+        PreviewLevel.Text=(characterMode&&characterSnapshot is not null?characterSnapshot.Character.Level:60).ToString();
+        ApplyPreviewLevel(sender,e);
+    }
     private CatalogItem? SelectedItem()=>ItemsGrid.SelectedItem as CatalogItem??(ItemsGrid.SelectedItem as CharacterItemRow)?.Item;
     private void SelectItem(object sender,SelectionChangedEventArgs e) => ShowTooltip(SelectedItem());
     private void ShowTooltip(CatalogItem? item)
     {
         TooltipPanel.Children.Clear(); SourceLabel.Text="";
         void Line(string text,string color="#FFFFFF",double size=13,bool bold=false) => TooltipPanel.Children.Add(new TextBlock { Text=text, Foreground=(Brush)new BrushConverter().ConvertFromString(color)!, FontSize=size, FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap, Margin=new Thickness(0,0,0,5) });
-        if(item is null) { Line("Select an item","#70B8FF",18); Line("Its tooltip will appear here.","#9299A5"); return; }
+        if(item is null) { Line("Select an item","#70B8FF",18); Line("Its tooltip will appear here.","#9299A5"); if(int.TryParse(PreviewLevel.Text,out int level)&&level==previewLevel)LevelFeedback.Text=$"Applied level {previewLevel} · select an item to see calculated values.";return; }
         var instance=characterMode?(ItemsGrid.SelectedItem as CharacterItemRow)?.Instance:null;
         foreach(var line in ItemTooltip.Build(item,tooltipData,catalogById,previewLevel,instance,characterMode?characterSnapshot:null)) TooltipPanel.Children.Add(RenderLine(line));
         var calculated=tooltipData.Calculations.Evaluate(item,previewLevel,instance);
+        if(int.TryParse(PreviewLevel.Text,out int entered)&&entered==previewLevel)
+            LevelFeedback.Text=$"Applied level {previewLevel} · preview recalculated. "+(calculated.ItemLevel is null?"Some values remain unresolved; see the item details.":item.Number("PlayerLevelToItemLevelCurveID")==0?"This item has a fixed item level, so its base stats stay the same.":instance?.FixedLevel>0?$"This instance uses saved scaling level {instance.FixedLevel}.":"Calculated values use this level and the item’s scaling curve.");
         SourceLabel.Text=$"Item ID {item.Id} · {item.Source}\n{calculated.Note}"+(instance is null?"":$"\nInstance {instance.Guid} · {instance.Location}");
         PreviewLegend.Text="Server-table base values at preview level "+previewLevel+". [scales] = unresolved rule; [client value] = unavailable. "+(characterMode?"Set highlighting reflects saved equipment. Enchants shown separately; no buffs or talents simulated.":"No character equipped.");
         PreviewScroll.ScrollToTop();
@@ -324,9 +342,13 @@ public partial class MainWindow : Window
             ClearClick(this,new RoutedEventArgs());ApplyFilters();
             Check(view!.Cast<object>().Count()==snapshot.Items.Count,"Character table preserves every saved instance");
             int storedLevel=snapshot.Character.Level;
-            PreviewLevel.Text="1";Check(previewLevel==1&&characterSnapshot!.Character.Level==storedLevel,"Level preview changes no saved character data");
-            PreviewLevel.Text="60";Check(previewLevel==60,"Level preview can return to level 60");
-            PreviewLevel.Text="0";Check(previewLevel==60,"Invalid preview level does not change calculations");PreviewLevel.Text="60";
+            int originalPreview=previewLevel;
+            PreviewLevel.Text=originalPreview==1?"2":"1";Check(previewLevel==originalPreview&&LevelFeedback.Text.Contains("pending"),"Editing a level keeps the current preview until applied");
+            ApplyLevelButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(previewLevel==int.Parse(PreviewLevel.Text)&&characterSnapshot!.Character.Level==storedLevel&&LevelFeedback.Text.Contains("recalculated"),"Apply button recalculates without changing saved character level");
+            PreviewLevel.Text="60";ApplyPreviewLevel(this,new RoutedEventArgs());Check(previewLevel==60,"Applied preview can return to level 60");
+            PreviewLevel.Text="0";ApplyPreviewLevel(this,new RoutedEventArgs());Check(previewLevel==60&&!ApplyLevelButton.IsEnabled,"Invalid preview level cannot be applied");
+            ResetPreviewLevel(this,new RoutedEventArgs());Check(previewLevel==storedLevel,"Reset applies the saved character level");
             UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);
             var characterBitmap=new RenderTargetBitmap((int)content.ActualWidth,(int)content.ActualHeight,96,96,PixelFormats.Pbgra32);characterBitmap.Render(content);
             var characterEncoder=new PngBitmapEncoder();characterEncoder.Frames.Add(BitmapFrame.Create(characterBitmap));using(var file=File.Create("artifacts/character-preview.png"))characterEncoder.Save(file);
