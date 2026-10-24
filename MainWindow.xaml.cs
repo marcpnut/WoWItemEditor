@@ -30,7 +30,7 @@ public partial class MainWindow : Window
     public MainWindow(bool verify=false)
     {
         this.verify=verify;
-        InitializeComponent();
+        InitializeComponent();ItemModelHost.Content=itemModel;CatalogCharacterHost.Content=catalogCharacter;ArmoryHost.Content=armory;InstallVisualPreview(OriginalHistoryScroll,OriginalHistoryTooltip);InstallVisualPreview(ModifiedHistoryScroll,ModifiedHistoryTooltip);
         Rarity.ItemsSource = new[] { new FilterChoice(-1,"All rarities") }.Concat(CatalogItem.Qualities.Select((name,id)=>new FilterChoice(id,name)));
         Slot.ItemsSource = new[] { new FilterChoice(-1,"All slots") }.Concat(CatalogItem.Slots.Select(p=>new FilterChoice(p.Key,p.Value)));
         ItemType.ItemsSource = new[] { new FilterChoice(-1,"All item types") }.Concat(CatalogItem.Classes.Select(p=>new FilterChoice(p.Key,p.Value)));
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
             var result=await new CatalogRepository().LoadAsync();
             items=result.Items;
             tooltipData=result.Tooltips;ItemKinds.Bind(ItemSubtype,tooltipData,(ItemType.SelectedItem as FilterChoice)?.Id??-1);
-            catalogById=items.ToDictionary(i=>i.Id);
+            catalogById=items.ToDictionary(i=>i.Id);ItemVisualPreview.PreviewCatalog=catalogById;CatalogSearch.Configure(result.Tooltips);
             BindHistory(result);
             if(characterSnapshot is not null)characterItems=CharacterRows(characterSnapshot);
             int previousSet=(SetFilter.SelectedItem as FilterChoice)?.Id??-1;
@@ -56,7 +56,7 @@ public partial class MainWindow : Window
             BindItems();
             SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
-            if(verify){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
+            if(verify){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
         }
         catch(Exception ex)
         {
@@ -102,7 +102,7 @@ public partial class MainWindow : Window
         if(count==0) ShowTooltip(null);
     }
     internal static bool Matches(CatalogItem item,string query,int rarity,int slot,int type,int? min,int? max) =>
-        (query.Length==0||item.Name.Contains(query,StringComparison.OrdinalIgnoreCase)||item.Id.ToString(CultureInfo.InvariantCulture)==query)
+        CatalogSearch.Item(item,query)
         && (rarity<0||item.Quality==rarity)&&(slot<0||item.Slot==slot)&&(type<0||item.ClassId==type)
         && (!min.HasValue||item.RequiredLevel>=min)&&(!max.HasValue||item.RequiredLevel<=max);
     private static bool TryLevel(string text,out int level) { level=0; return string.IsNullOrWhiteSpace(text)||int.TryParse(text,out level)&&level>=0; }
@@ -141,7 +141,7 @@ public partial class MainWindow : Window
         if(page=="Change history"){ShowHistoryPage();return;}
         historyMode=false;HistoryPage.Visibility=Visibility.Collapsed;
         bool wasCharacter=characterMode;
-        characterMode=page=="Characters";
+        characterMode=page=="Characters";ShowArmory();
         if(wasCharacter!=characterMode&&view is not null){ClearClick(this,new RoutedEventArgs());StorageFilter.SelectedIndex=0;}
         bool isItem=page=="Item catalog"||characterMode;
         PageTitle.Text=page; PageSubtitle.Text=characterMode?"Browse saved equipment, bags, bank, mail, and void storage. Change the preview level to compare.":isItem ? "Explore your server’s items. Select a row to inspect its details." : "A home for your server’s "+(page=="Spell catalog" ? "spells." : "item procs.");
@@ -216,6 +216,7 @@ public partial class MainWindow : Window
             if(request!=characterRequest)return;
             characterSnapshot=snapshot;
             characterItems=CharacterRows(snapshot);
+            if(loadedCatalog is not null)await armory.Bind(snapshot,loadedCatalog,previewLevel);
             PreviewLevel.Text=selected.Level.ToString();
             ApplyPreviewLevel(this,new RoutedEventArgs());
             int unknown=characterItems.Count(i=>!i.Item.Fields.ContainsKey("Display"));
@@ -236,7 +237,7 @@ public partial class MainWindow : Window
     private void ApplyPreviewLevel(object sender,RoutedEventArgs e)
     {
         if(!int.TryParse(PreviewLevel.Text,out int level)||level is <1 or >60){PreviewLevelChanged(this,new TextChangedEventArgs(TextBox.TextChangedEvent,UndoAction.None));return;}
-        previewLevel=level;
+        previewLevel=level;armory.SetLevel(level);
         ShowTooltip(SelectedItem());
     }
     private void PreviewLevelKeyDown(object sender,System.Windows.Input.KeyEventArgs e)
@@ -252,7 +253,7 @@ public partial class MainWindow : Window
     private void SelectItem(object sender,SelectionChangedEventArgs e) => ShowTooltip(SelectedItem());
     private void ShowTooltip(CatalogItem? item)
     {
-        TooltipPanel.Children.Clear(); SourceLabel.Text="";
+        TooltipPanel.Children.Clear(); SourceLabel.Text="";if(CatalogPreviewTabs.SelectedIndex==1)itemModel.Bind(item);if(CatalogPreviewTabs.SelectedIndex==2)UpdateCatalogCharacter();
         void Line(string text,string color="#FFFFFF",double size=13,bool bold=false) => TooltipPanel.Children.Add(new TextBlock { Text=text, Foreground=(Brush)new BrushConverter().ConvertFromString(color)!, FontSize=size, FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap, Margin=new Thickness(0,0,0,5) });
         if(item is null) { Line("Select an item","#70B8FF",18); Line("Its tooltip will appear here.","#9299A5"); if(int.TryParse(PreviewLevel.Text,out int level)&&level==previewLevel)LevelFeedback.Text=$"Applied level {previewLevel} · select an item to see calculated values.";return; }
         var instance=characterMode?(ItemsGrid.SelectedItem as CharacterItemRow)?.Instance:null;

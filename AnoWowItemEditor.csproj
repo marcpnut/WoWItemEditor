@@ -5,7 +5,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="artifacts/**/*.cs" />
+    <None Update="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="DBCD" Version="2.3.1" />
     <PackageReference Include="MySqlConnector" Version="2.4.0" />
+    <PackageReference Include="TACTSharp" Version="0.2.0-alpha" />
   </ItemGroup>
 </Project>

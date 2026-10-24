@@ -5,6 +5,9 @@ namespace AnoWowItemEditor;
 
 internal sealed record ReferenceEntry(int SpellId,int? EffectId,string Name,string Kind,string Trigger,string Description,string Details)
 {
+    public string[] TriggerTypes {get;init;}=[];
+    public IEnumerable<string> Triggers=>Kind=="Spell"&&TriggerTypes.Length>0?TriggerTypes:[Trigger];
+
     public int SchoolMask {get;init;}
     public int[] EffectTypes {get;init;}=[];
     public int[] AuraTypes {get;init;}=[];
@@ -14,7 +17,7 @@ internal sealed record ReferenceEntry(int SpellId,int? EffectId,string Name,stri
     public bool HasDescription {get;init;}
     public int[] SetIds {get;init;}=[];
     public string EffectLabel=>EffectId?.ToString()??"—";
-    public bool Matches(string query)=>query.Length==0||SpellId.ToString()==query||EffectId?.ToString()==query||Name.Contains(query,StringComparison.OrdinalIgnoreCase)||Description.Contains(query,StringComparison.OrdinalIgnoreCase)||Trigger.Contains(query,StringComparison.OrdinalIgnoreCase)||Kind.Contains(query,StringComparison.OrdinalIgnoreCase);
+    public bool Matches(string query)=>CatalogSearch.Reference(this,query);
 }
 internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<ReferenceEntry> Procs)
 {
@@ -63,7 +66,7 @@ internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<Referen
             details+="Existing set bonuses\n"+(bonuses[id].Any()?string.Join("\n",bonuses[id].Select(r=>$"Set {N(r,"ItemSetID")} · {N(r,"Threshold")} pieces · specialization {N(r,"ChrSpecID")}")):"None recorded")+"\n\n";
             details+="Existing item effects\n"+(itemEffects[id].Any()?string.Join("\n",itemEffects[id].Select(r=>$"Effect {N(r,"ID")} · {Trigger(N(r,"TriggerType"))} · items: "+string.Join(", ",links[N(r,"ID")].Select(l=>N(l,"ItemID"))))):"None configured")+"\n\n";
             details+=Section("Server proc rules (negative SpellId applies to all ranks)",procRules[id])+Section("Spell fields",data.Spells.TryGetValue(id,out var fields)?[fields]:[])+Section("Spell effects (all difficulties)",effects[id])+Section("Proc/aura options",aura[id])+Section("Spell metadata",misc[id]);
-            var entry=new ReferenceEntry(id,null,data.SpellName(id),"Spell","—",description,details){SetIds=bonuses[id].Select(r=>N(r,"ItemSetID")).Distinct().ToArray(),SchoolMask=misc[id].Aggregate(0,(mask,r)=>mask|N(r,"SchoolMask")),EffectTypes=effects[id].Select(r=>N(r,"Effect")).Distinct().ToArray(),AuraTypes=effects[id].Select(r=>N(r,"EffectAura")).Where(n=>n>0).Distinct().ToArray(),UsedBySets=bonuses[id].Any(),UsedByItems=itemEffects[id].Any(),HasProcRules=procRules[id].Any(),HasDescription=data.Spells.TryGetValue(id,out var s)&&!string.IsNullOrWhiteSpace(TooltipData.Read(s,"Description"))};spells.Add(entry);
+            var entry=new ReferenceEntry(id,null,data.SpellName(id),"Spell","—",description,details){TriggerTypes=itemEffects[id].Select(r=>Trigger(N(r,"TriggerType"))).Concat(procRules[id].Any()||aura[id].Any(r=>TooltipData.Amount(r,"ProcTypeMask1")!=0||TooltipData.Amount(r,"ProcTypeMask2")!=0)?new[]{"Spell proc rules"}:Array.Empty<string>()).Distinct().ToArray(),SetIds=bonuses[id].Select(r=>N(r,"ItemSetID")).Distinct().ToArray(),SchoolMask=misc[id].Aggregate(0,(mask,r)=>mask|N(r,"SchoolMask")),EffectTypes=effects[id].Select(r=>N(r,"Effect")).Distinct().ToArray(),AuraTypes=effects[id].Select(r=>N(r,"EffectAura")).Where(n=>n>0).Distinct().ToArray(),UsedBySets=bonuses[id].Any(),UsedByItems=itemEffects[id].Any(),HasProcRules=procRules[id].Any(),HasDescription=data.Spells.TryGetValue(id,out var s)&&!string.IsNullOrWhiteSpace(TooltipData.Read(s,"Description"))};entry=entry with{Trigger=entry.TriggerTypes.Length>0?string.Join(", ",entry.TriggerTypes):"—"};spells.Add(entry);
             foreach(var effect in itemEffects[id])procs.Add(entry with{EffectId=N(effect,"ID"),Kind="Item effect",Trigger=Trigger(N(effect,"TriggerType")),Details=$"ITEM EFFECT {N(effect,"ID")}\n"+Section("Item effect fields",[effect])+details});
             if(!itemEffects[id].Any()&&(procRules[id].Any()||aura[id].Any(r=>TooltipData.Amount(r,"ProcTypeMask1")!=0||TooltipData.Amount(r,"ProcTypeMask2")!=0)))procs.Add(entry with{Kind="Proc spell",Trigger="Spell proc rules",Details="PROC SPELL · Proc rules are configured; no item effect is assigned.\n\n"+details});
         }

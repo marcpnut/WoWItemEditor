@@ -134,7 +134,7 @@ internal sealed class ContentEditorWindow : Window
     private void AddPreview(Grid grid,StackPanel panel,string title,int column)
     {
         var dock=new DockPanel();Grid.SetColumn(dock,column);grid.Children.Add(dock);var heading=new TextBlock{Text=title,Foreground=Brushes.LightSkyBlue,Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(heading,Dock.Top);dock.Children.Add(heading);
-        dock.Children.Add(new ScrollViewer{VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,Content=new Border{Background=new SolidColorBrush(Color.FromRgb(16,17,27)),BorderBrush=Brushes.SlateGray,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(6),Padding=new Thickness(18),Child=panel}});
+        dock.Children.Add(new ItemVisualPreview(panel));
     }
     internal void RenderPreviews()
     {
@@ -149,7 +149,7 @@ internal sealed class ContentEditorWindow : Window
             lines.Add(new(""));foreach(var bonus in list.OrderBy(r=>r.Pieces))lines.Add(new($"({bonus.Pieces}) Set: {bonus.Bonus?.Description(references.Data)??references.Data.SpellDescription(bonus.SpellId)}"+(bonus.Specialization>0?$" [Specialization {bonus.Specialization}]":"")+(bonus.Trait>0?$" [Trait subtree {bonus.Trait}]":""),equipped>=bonus.Pieces?ItemTooltip.Green:ItemTooltip.Gray));
             lines.Add(new(""));lines.Add(new("Preview only · specialization, trait and skill requirements still apply.",ItemTooltip.Gray,Size:11));return lines;
         }
-        var original=Lines(session.Initial);var modified=Lines(draft);TooltipView.Fill(currentPreview,original);TooltipView.Fill(draftPreview,modified,original);
+        if(kind=="Set"){var worn=SetDesignReview.Equip(new(new(0,"Set preview",60,1,false,0),[]),catalog.Tooltips.Sets[choice.Id].Members.Where(lookup.ContainsKey).Select(id=>lookup[id]),lookup,60).Slots;ItemVisualPreview.Outfit(currentPreview,worn);ItemVisualPreview.Outfit(draftPreview,worn);}var original=Lines(session.Initial);var modified=Lines(draft);TooltipView.Fill(currentPreview,original);TooltipView.Fill(draftPreview,modified,original);
     }
     internal static TooltipData PreviewData(TooltipData source,TooltipData spells)
     {

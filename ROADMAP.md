@@ -22,8 +22,14 @@ The user verified item revert and inactive history removal in game. Server-suppl
 
 Implemented after the crash review: effective calculation-row safety gates, immediate stat draft updates, named material filters, readable allowed classes, instance/boss-only drops, searchable aura/effect choices, explained and bounded private bonus values, and Modify created sets with duplicate additions, non-destructive member removal, rename and transactional history. See SERVER_SAFETY.md for observed table bounds and the limits of crash diagnosis without matching symbols.
 
-Set workspaces now include an equipment-slot layout with selection tooltips and double-click item editing. Live character model rendering and actual item icon artwork remain future work.
+Set workspaces now include an equipment-slot layout with selection tooltips and double-click item editing. Static character rendering has since been added; actual item icon artwork remains future work.
 
 Completed: selected-slot drop editing, searchable instance/boss destinations with retained selections, readable saved loot sources/rates, explicit draft-copy plans, complete-set character simulation and reference-set balance review. Numeric comparisons default to common slots and report base stats separately from bonus/proc power. Next validation remains in-game equip/tooltip and actual boss-loot behavior when WoW is available. Future simulation work includes verified enchant/gem totals, class proficiencies, talent-specific hand rules and proc/set-effect power.
 
 Completed: complete saved-set testing checklist with editor links, scoped saved-drop reviews, compatible-slot bonus thresholds and explicit live-test requirements. Bonus/proc explanations now show amounts, units, targets, durations/ticks, activation/cooldown conditions and stored proc chance/PPM rules without inferring final combat outcomes. Next candidate: an embedded 3D viewer compatibility prototype using matching client assets; see MODEL_VIEWER_PLAN.md.
+
+Implemented first 3D milestone: Item catalog now has a lazy textured standalone-item viewport with all-axis drag rotation, zoom and a larger window with independent X/Y/Z sliders. Actual Dreadnaught shoulder meshes/skin, a weapon and a custom duplicated shoulder mapping were verified from the installed client and server definitions. The next pass below adds race/body variants, character compositing and dressed-set previews. Animations and advanced materials remain future work. See README.md and THIRD_PARTY_NOTICES.md.
+
+- Added shared item/character preview tabs, static full-outfit texture composition, preview-only character armory swaps, Shift-trackball rotation and nested-enlargement prevention.
+- Expanded catalog searches across stored and readable fields; spell and proc catalogs share named Trigger filters.
+- Later renderer work: idle animations, shader/effect parity, collection model fidelity and more race/body fixtures.

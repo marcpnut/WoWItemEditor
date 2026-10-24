@@ -26,6 +26,10 @@ internal sealed class EquipmentSetView : Grid
     private object? selectedKey;
     private int level=60;
     private CharacterSnapshot? character;
+    private ModelCharacter? modelProfile;
+    private ulong? profileGuid;
+    private int profileRequest;
+    private async Task BindModelProfile(CharacterSnapshot? snapshot){if(profileGuid==snapshot?.Character.Guid)return;int token=++profileRequest;profileGuid=snapshot?.Character.Guid;modelProfile=null;if(snapshot is null||snapshot.Character.Guid==0)return;try{var loaded=await ModelCharacterRepository.Load(snapshot.Character);if(token!=profileRequest)return;modelProfile=loaded;ItemVisualPreview.Outfit(tooltip,equipped.Where(p=>p.Value.Active).ToDictionary(p=>p.Key,p=>p.Value.Item),modelProfile);}catch{}}
     internal void HideEditingActions(){readOnly=true;drops.Visibility=Visibility.Collapsed;note.Text="Simulated equipment · select a slot to inspect. No character data is changed.";}
     private bool binding,readOnly;
     internal EquipmentViewItem? Selection {get;private set;}
@@ -82,12 +86,12 @@ internal sealed class EquipmentSetView : Grid
     };
     internal void Bind(IEnumerable<EquipmentViewItem> items,TooltipData tooltips,IReadOnlyDictionary<int,CatalogItem> catalog,int previewLevel=60,CharacterSnapshot? snapshot=null)
     {
-        entries=items.ToList();character=snapshot;data=tooltips;lookup=catalog;level=previewLevel;equipped.Clear();var extra=new List<EquipmentViewItem>();
+        entries=items.ToList();character=snapshot;_ = BindModelProfile(snapshot);data=tooltips;lookup=catalog;level=previewLevel;equipped.Clear();var extra=new List<EquipmentViewItem>();
         foreach(var row in entries.OrderByDescending(e=>e.Slot.HasValue).ThenByDescending(e=>e.Item.Slot==17)){
             var targets=row.Slot.HasValue?new[]{row.Slot.Value}:GearDesign.Targets(row.Item);int? target=targets.Where(s=>frames.ContainsKey(s)&&!equipped.ContainsKey(s)&&!(s==16&&equipped.GetValueOrDefault(15)?.Item.Slot==17)).Cast<int?>().FirstOrDefault();
             if(!target.HasValue){extra.Add(row);continue;}equipped[target.Value]=row;
         }
-        Overflow=extra;extraPanel.Visibility=extra.Count>0?Visibility.Visible:Visibility.Collapsed;extraPanel.Header=$"Additional pieces / slot conflicts ({extra.Count})";binding=true;overflow.ItemsSource=extra;overflow.SelectedItem=null;binding=false;
+        ItemVisualPreview.Outfit(tooltip,equipped.Where(p=>p.Value.Active).ToDictionary(p=>p.Key,p=>p.Value.Item),modelProfile);Overflow=extra;extraPanel.Visibility=extra.Count>0?Visibility.Visible:Visibility.Collapsed;extraPanel.Header=$"Additional pieces / slot conflicts ({extra.Count})";binding=true;overflow.ItemsSource=extra;overflow.SelectedItem=null;binding=false;
         foreach(int slot in frames.Keys){labels[slot].Children.Clear();bool filled=equipped.TryGetValue(slot,out var row);var color=filled?row!.Item.NameBrush:Brushes.SlateGray;symbols[slot].Stroke=color;frames[slot].Opacity=filled&&!row!.Active?0.55:1;
             labels[slot].Children.Add(new TextBlock{Text=GearDesign.EquipmentSlots[slot],FontSize=10,Foreground=Brushes.Gray});labels[slot].Children.Add(new TextBlock{Text=filled?row!.Item.Name:slot==16&&equipped.GetValueOrDefault(15)?.Item.Slot==17?"Two-hand weapon":"Empty",FontSize=11,Foreground=color,TextTrimming=TextTrimming.CharacterEllipsis});frames[slot].ToolTip=readOnly&&filled?row!.Item.Name+" · select for tooltip":filled?$"{row!.Item.Name}\nItem level {row.Item.ItemLevel}\nSelect for tooltip · double-click to edit":GearDesign.EquipmentSlots[slot];}
         var selected=entries.FirstOrDefault(e=>Equals(e.Key,selectedKey))??entries.FirstOrDefault(e=>e.Item.Id==Selection?.Item.Id&&e.Slot==Selection.Slot)??entries.FirstOrDefault();if(selected is not null)Select(selected);else ClearSelection();

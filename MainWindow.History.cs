@@ -60,7 +60,7 @@ public partial class MainWindow
         if(!TryLevel(HistoryMinLevel.Text,out int min)||!TryLevel(HistoryMaxLevel.Text,out int max)||HistoryMinLevel.Text.Length>0&&HistoryMaxLevel.Text.Length>0&&min>max){HistoryCount.Text="Enter a valid required-level range. The previous filter remains applied.";return;}
         historyView.Filter=value=>value is OverrideEntry entry&&entry.OriginalItem is not null&&(!entry.Hidden||entry.Active||ShowRemovedHistory.IsChecked==true)&&(state!=1||entry.Active)&&(state!=2||!entry.Active)&&(activity!=1||entry.Activity.Count>0)&&(activity!=2||entry.Activity.Count==0)
             &&ItemKinds.Matches(HistorySubtype,entry.ModifiedItem)&&Matches(entry.ModifiedItem,"",rarity,slot,type,HistoryMinLevel.Text.Length>0?min:null,HistoryMaxLevel.Text.Length>0?max:null)&&(set<0||entry.ModifiedItem.Number("ItemSet")==set||loadedCatalog.Tooltips.Sets.GetValueOrDefault(set)?.Members.Contains(entry.Id)==true)
-            &&(query.Length==0||entry.Name.Contains(query,StringComparison.OrdinalIgnoreCase)||entry.Id.ToString()==query||entry.Fields.Any(f=>f.Changed&&f.Field.Contains(query,StringComparison.OrdinalIgnoreCase)));
+            &&(CatalogSearch.Item(entry.ModifiedItem,query)||entry.OriginalItem is not null&&CatalogSearch.Item(entry.OriginalItem,query)||CatalogSearch.Matches(query,string.Join(" ",entry.Fields.Select(f=>$"{f.Field} {f.Original} {f.Modified}"))));
         SetHistoryCount();
         var visible=historyView.Cast<OverrideEntry>().ToList();
         var target=visible.FirstOrDefault(e=>e.Key==selected)??visible.FirstOrDefault(e=>e.OriginalItem is not null&&e.Activity.Count>0)??visible.FirstOrDefault();
@@ -86,7 +86,7 @@ public partial class MainWindow
     {
         if(OriginalHistoryTooltip is null||loadedCatalog is null)return;
         RevertButton.IsEnabled=ReapplyButton.IsEnabled=RemoveHistoryButton.IsEnabled=false;
-        OriginalHistoryTooltip.Children.Clear();ModifiedHistoryTooltip.Children.Clear();
+        OriginalHistoryTooltip.Children.Clear();ModifiedHistoryTooltip.Children.Clear();ItemVisualPreview.Update(OriginalHistoryTooltip,Array.Empty<TooltipLine>());ItemVisualPreview.Update(ModifiedHistoryTooltip,Array.Empty<TooltipLine>());
         if(HistoryGrid.SelectedItem is not OverrideEntry entry) {
             HistoryDetail.Text="No records match these filters.";OriginalHistorySource.Text=ModifiedHistorySource.Text="";
             HistoryFields.ItemsSource=null;HistoryAudit.Text="";return;
@@ -150,7 +150,7 @@ public partial class MainWindow
     }
     private void AddComparisonLines(StackPanel target,List<TooltipLine> lines,List<TooltipLine> other,string? highlight)
     {
-        var texts=other.Select(l=>l.Text).ToHashSet(StringComparer.Ordinal);
+        ItemVisualPreview.Update(target,lines);var texts=other.Select(l=>l.Text).ToHashSet(StringComparer.Ordinal);
         foreach(var line in lines) {
             var element=RenderLine(line);
             if(highlight is not null&&line.Text.Length>0&&!texts.Contains(line.Text)&&element is Grid grid){grid.Background=(Brush)new BrushConverter().ConvertFromString(highlight)!;grid.ToolTip="Different between original and modified versions";}

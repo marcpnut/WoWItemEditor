@@ -20,7 +20,7 @@ public partial class MainWindow
     {
         var layout=new DockPanel();ReferencePage.Children.Add(layout);
         var top=new StackPanel{Margin=new Thickness(0,0,0,16)};DockPanel.SetDock(top,Dock.Top);layout.Children.Add(top);
-        top.Children.Add(new TextBlock{Text="Search name, exact spell/item-effect ID, description or trigger",Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,8)});
+        top.Children.Add(new TextBlock{Text="Search all fields · names, IDs, descriptions, effects, auras and triggers",Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,8)});
         referenceSearch=new TextBox();referenceSearch.TextChanged+=(_,_)=>FilterReferences();top.Children.Add(referenceSearch);
         referenceFilters=new SpellFilters();referenceFilters.Changed+=FilterReferences;top.Children.Add(referenceFilters);
         var clear=new Button{Content="Clear search & filters",HorizontalAlignment=HorizontalAlignment.Left};clear.Click+=(_,_)=>{referenceSearch.Clear();referenceFilters.Reset();};top.Children.Add(clear);
@@ -47,14 +47,14 @@ public partial class MainWindow
             if(refresh){references=null;referenceLoad=null;referenceGeneration++;}
             if(references is null){referenceCount.Text="Loading installed spell tables and active MariaDB hotfixes…";referenceView=null;referenceGrid.ItemsSource=null;referenceDetails.Clear();int generation=referenceGeneration;referenceLoad??=ReferenceCatalog.LoadAsync();var loaded=await referenceLoad;if(generation!=referenceGeneration)return;references=loaded;}
             if(referenceMode!=page)return;
-            referenceFilters.Bind(references.Spells);referenceView=CollectionViewSource.GetDefaultView(page=="Spell catalog"?references.Spells:references.Procs);referenceGrid.ItemsSource=referenceView;FilterReferences();
+            referenceFilters.Bind(page=="Spell catalog"?references.Spells:references.Procs);referenceView=CollectionViewSource.GetDefaultView(page=="Spell catalog"?references.Spells:references.Procs);referenceGrid.ItemsSource=referenceView;FilterReferences();
         }catch(Exception ex){referenceLoad=null;if(referenceMode==page)referenceCount.Text="Could not load references: "+ex.Message;}
     }
     private void FilterReferences()
     {
         if(referenceView is null)return;string query=referenceSearch.Text.Trim();bool exactId=int.TryParse(query,out int id)&&id>0;
-        referenceView.Filter=value=>value is ReferenceEntry entry&&(exactId?(entry.SpellId==id||referenceMode=="Proc catalog"&&entry.EffectId==id):entry.Matches(query)&&referenceFilters.Matches(entry));
-        referenceCount.Text=$"{referenceView.Cast<ReferenceEntry>().Count():N0} shown · "+(exactId?"Exact ID lookup ignores filters · ":"")+"Installed DB2 + active MariaDB hotfixes";
+        referenceView.Filter=value=>value is ReferenceEntry entry&&(exactId&&(entry.SpellId==id||referenceMode=="Proc catalog"&&entry.EffectId==id)||entry.Matches(query)&&referenceFilters.Matches(entry));
+        referenceCount.Text=$"{referenceView.Cast<ReferenceEntry>().Count():N0} shown · "+(exactId?"Direct ID matches ignore filters · ":"")+"Installed DB2 + active MariaDB hotfixes";
         if(referenceGrid.SelectedItem is null||!referenceView.Contains(referenceGrid.SelectedItem))referenceGrid.SelectedIndex=referenceView.IsEmpty?-1:0;ShowReferenceSelection();
     }
     private void ShowReferenceSelection(){referenceDetails.Text=referenceGrid.SelectedItem is ReferenceEntry entry?$"{entry.Name}\n{entry.Kind} · {entry.Trigger}\n\n{entry.Details}":"No matching records.";referenceDetails.ScrollToHome();}

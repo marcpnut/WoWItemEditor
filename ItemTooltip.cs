@@ -23,7 +23,7 @@ internal static class ItemTooltip
     };
     internal static List<TooltipLine> Build(CatalogItem item,TooltipData data,IReadOnlyDictionary<int,CatalogItem> catalog,int previewLevel=60,OwnedItem? instance=null,CharacterSnapshot? character=null)
     {
-        var lines=new List<TooltipLine>();
+        var lines=new List<TooltipLine>();ItemVisualPreview.Remember(lines,item,character);
         void Add(string text,string color="#FFFFFF",string? right=null,int indent=0,double size=13,bool bold=false)=>lines.Add(new(text,color,right,indent,size,bold));
         void Gap()=>Add("",size:5);
         Add(item.Name,item.NameBrush.ToString(),size:18,bold:true);
