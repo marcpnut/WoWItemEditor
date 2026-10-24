@@ -5,11 +5,20 @@ namespace AnoWowItemEditor;
 
 internal sealed record ReferenceEntry(int SpellId,int? EffectId,string Name,string Kind,string Trigger,string Description,string Details)
 {
+    public int SchoolMask {get;init;}
+    public int[] EffectTypes {get;init;}=[];
+    public int[] AuraTypes {get;init;}=[];
+    public bool UsedBySets {get;init;}
+    public bool UsedByItems {get;init;}
+    public bool HasProcRules {get;init;}
+    public bool HasDescription {get;init;}
     public string EffectLabel=>EffectId?.ToString()??"—";
     public bool Matches(string query)=>query.Length==0||SpellId.ToString()==query||EffectId?.ToString()==query||Name.Contains(query,StringComparison.OrdinalIgnoreCase)||Description.Contains(query,StringComparison.OrdinalIgnoreCase)||Trigger.Contains(query,StringComparison.OrdinalIgnoreCase)||Kind.Contains(query,StringComparison.OrdinalIgnoreCase);
 }
 internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<ReferenceEntry> Procs)
 {
+    internal TooltipData Data {get;init;}=new();
+    internal Dictionary<int,Dictionary<string,string>> ItemEffects {get;init;}=[];
     internal static async Task<ReferenceCatalog> LoadAsync()
     {
         string[] names=["Spell","SpellName","SpellEffect","SpellMisc","SpellDuration","SpellAuraOptions","ItemEffect","ItemXItemEffect","ItemSetSpell"];
@@ -50,11 +59,11 @@ internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<Referen
             details+="Existing set bonuses\n"+(bonuses[id].Any()?string.Join("\n",bonuses[id].Select(r=>$"Set {N(r,"ItemSetID")} · {N(r,"Threshold")} pieces · specialization {N(r,"ChrSpecID")}")):"None recorded")+"\n\n";
             details+="Existing item effects\n"+(itemEffects[id].Any()?string.Join("\n",itemEffects[id].Select(r=>$"Effect {N(r,"ID")} · {Trigger(N(r,"TriggerType"))} · items: "+string.Join(", ",links[N(r,"ID")].Select(l=>N(l,"ItemID"))))):"None configured")+"\n\n";
             details+=Section("Server proc rules (negative SpellId applies to all ranks)",procRules[id])+Section("Spell fields",data.Spells.TryGetValue(id,out var fields)?[fields]:[])+Section("Spell effects (all difficulties)",effects[id])+Section("Proc/aura options",aura[id])+Section("Spell metadata",misc[id]);
-            var entry=new ReferenceEntry(id,null,data.SpellName(id),"Spell","—",description,details);spells.Add(entry);
+            var entry=new ReferenceEntry(id,null,data.SpellName(id),"Spell","—",description,details){SchoolMask=misc[id].Aggregate(0,(mask,r)=>mask|N(r,"SchoolMask")),EffectTypes=effects[id].Select(r=>N(r,"Effect")).Distinct().ToArray(),AuraTypes=effects[id].Select(r=>N(r,"EffectAura")).Where(n=>n>0).Distinct().ToArray(),UsedBySets=bonuses[id].Any(),UsedByItems=itemEffects[id].Any(),HasProcRules=procRules[id].Any(),HasDescription=data.Spells.TryGetValue(id,out var s)&&!string.IsNullOrWhiteSpace(TooltipData.Read(s,"Description"))};spells.Add(entry);
             foreach(var effect in itemEffects[id])procs.Add(entry with{EffectId=N(effect,"ID"),Kind="Item effect",Trigger=Trigger(N(effect,"TriggerType")),Details=$"ITEM EFFECT {N(effect,"ID")}\n"+Section("Item effect fields",[effect])+details});
             if(!itemEffects[id].Any())procs.Add(entry with{Kind="Spell candidate",Trigger="Not configured",Details="SPELL CANDIDATE · No item effect configured. Suitability depends on the spell and server rules.\n\n"+details});
         }
-        return new(spells.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ToList(),procs.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ThenBy(s=>s.EffectId).ToList());
+        return new(spells.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ToList(),procs.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ThenBy(s=>s.EffectId).ToList()){Data=data,ItemEffects=tables["ItemEffect"]};
     }
     private static int N(Dictionary<string,string> row,string key)=>TooltipData.Number(row,key);
     private static string Section(string title,IEnumerable<Dictionary<string,string>> rows)=>title+"\n"+(rows.Any()?string.Join("\n\n",rows.Select(r=>string.Join("\n",r.OrderBy(p=>p.Key).Select(p=>$"{p.Key}: {p.Value}")))):"No records")+"\n\n";

@@ -1,12 +1,11 @@
 # Next editing work
 
-History supports reviewed, transactional item-field revert/reapply with immutable retained payloads, conflict detection and linked audit events. Inactive entries can be removed from the normal history list and restored through Show removed entries. Removal never deletes the audit trail or stored payload.
+Set-bonus and weapon-proc editors now support drafts, before/after previews, filtered spell selection, validation and transactional saves. Set/proc history retains immutable original and modified assignments with revert/reapply and inactive removal/restoration. Shared spell definitions and original item effects are preserved.
 
-Spell and Proc catalogs are read-only references. A future editor can use their IDs to build set bonuses and weapon procs. Assignment needs validation of trigger, spell requirements, cooldowns, server proc rules and dependencies. Showing a spell candidate does not guarantee it is suitable for every item.
+The user verified item revert and inactive history removal in game. Server-supplied item definitions without an original are excluded from item History and its displayed counts, while remaining in the catalog.
 
-- Add set-bonus editing with before/after tooltips and recorded set operations.
-- Add weapon proc assignment using the reference catalogs, preserving original links and effects.
-- Extend historical operations to set/spell/effect definitions before promising complete historical dependency reproduction. Current history actions restore item fields and retain shared definitions.
+- Add optional per-weapon proc chance/PPM editing only after verifying the server rules. Current editors configure item-effect triggers/cooldowns/charges and preserve global spell_proc rules.
+- Add set membership/name editing if requested; current set editor edits bonuses of existing sets.
+- Extend history conflict resolution for overlapping successive edits. Current operations block automatic restore when newer rows/registrations or external references differ.
 - Resolve unsupported instance bonus lists, random properties, conditional/nonlinear scaling and maximum durability using verified server/client rules.
-- The user confirmed the initial in-game comparison is correct. Continue checking representative armor, weapons, ratings, procs and level behavior as those features expand.
-- Keep unavailable originals and unsupported calculations explicit.
+- Continue in-game checks of set bonuses, proc behavior and level previews as those features expand. Database verification alone does not test live server behavior.

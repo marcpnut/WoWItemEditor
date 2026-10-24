@@ -44,7 +44,7 @@ public partial class MainWindow
     private void SetCatalogStatus(CatalogResult result)
     {
         Status.Inlines.Clear();Status.Inlines.Add(new Run($"● Connected to MariaDB · {CatalogRepository.Database} · {items.Count:N0} items · "));
-        var link=new Hyperlink(new Run($"{result.Overrides:N0} active overrides")){Foreground=new SolidColorBrush(Color.FromRgb(112,184,255)),ToolTip="Open Change history"};
+        var link=new Hyperlink(new Run($"{result.History.Entries.Count(e=>e.Active&&e.OriginalItem is not null):N0} active item overrides")){Foreground=new SolidColorBrush(Color.FromRgb(112,184,255)),ToolTip="Open Change history"};
         link.Click+=(_,_)=>HistoryNav.IsChecked=true;Status.Inlines.Add(link);
         Status.Inlines.Add(new Run(" · Installed DB2 build 70450"));
     }
@@ -57,7 +57,7 @@ public partial class MainWindow
         string query=HistorySearch.Text.Trim();int state=HistoryState.SelectedIndex,activity=HistoryActivity.SelectedIndex;
         int rarity=(HistoryRarity.SelectedItem as FilterChoice)?.Id??-1,slot=(HistorySlot.SelectedItem as FilterChoice)?.Id??-1,type=(HistoryType.SelectedItem as FilterChoice)?.Id??-1,set=(HistorySet.SelectedItem as FilterChoice)?.Id??-1;
         if(!TryLevel(HistoryMinLevel.Text,out int min)||!TryLevel(HistoryMaxLevel.Text,out int max)||HistoryMinLevel.Text.Length>0&&HistoryMaxLevel.Text.Length>0&&min>max){HistoryCount.Text="Enter a valid required-level range. The previous filter remains applied.";return;}
-        historyView.Filter=value=>value is OverrideEntry entry&&(!entry.Hidden||entry.Active||ShowRemovedHistory.IsChecked==true)&&(state!=1||entry.Active)&&(state!=2||!entry.Active)&&(activity!=1||entry.Activity.Count>0)&&(activity!=2||entry.Activity.Count==0)
+        historyView.Filter=value=>value is OverrideEntry entry&&entry.OriginalItem is not null&&(!entry.Hidden||entry.Active||ShowRemovedHistory.IsChecked==true)&&(state!=1||entry.Active)&&(state!=2||!entry.Active)&&(activity!=1||entry.Activity.Count>0)&&(activity!=2||entry.Activity.Count==0)
             &&Matches(entry.ModifiedItem,"",rarity,slot,type,HistoryMinLevel.Text.Length>0?min:null,HistoryMaxLevel.Text.Length>0?max:null)&&(set<0||entry.ModifiedItem.Number("ItemSet")==set||loadedCatalog.Tooltips.Sets.GetValueOrDefault(set)?.Members.Contains(entry.Id)==true)
             &&(query.Length==0||entry.Name.Contains(query,StringComparison.OrdinalIgnoreCase)||entry.Id.ToString()==query||entry.Fields.Any(f=>f.Changed&&f.Field.Contains(query,StringComparison.OrdinalIgnoreCase)));
         SetHistoryCount();
@@ -70,7 +70,7 @@ public partial class MainWindow
     private void SetHistoryCount()
     {
         if(loadedCatalog is null||historyView is null)return;
-        int active=loadedCatalog.History.Entries.Count(e=>e.Active),inactive=loadedCatalog.History.Entries.Count-active;
+        int active=loadedCatalog.History.Entries.Count(e=>e.OriginalItem is not null&&e.Active),inactive=loadedCatalog.History.Entries.Count(e=>e.OriginalItem is not null&&!e.Active);
         HistoryCount.Text=$"{historyView.Cast<OverrideEntry>().Count():N0} shown · {active:N0} active · {inactive:N0} inactive · Active means a valid latest hotfix registration; it does not establish authorship.";
         if(loadedCatalog.History.Warnings.Count>0)HistoryCount.Text+=" "+string.Join(" ",loadedCatalog.History.Warnings);
     }

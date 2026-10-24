@@ -4,7 +4,7 @@ using System.Text.Json;
 using MySqlConnector;
 namespace AnoWowItemEditor;
 
-internal sealed record ItemSnapshot(Dictionary<string,List<Dictionary<string,string?>>> Tables,Dictionary<string,string>? OriginalItem=null);
+internal sealed record ItemSnapshot(Dictionary<string,List<Dictionary<string,string?>>> Tables,Dictionary<string,string>? OriginalItem=null,ContentRow[]? ContentRows=null);
 internal sealed record OverrideState(int Version,bool Active,string BaselineJson,string ModifiedJson,string ExpectedJson,string LastEvent);
 internal sealed record HistoryPlan(int Id,int Build,bool Reapply,string Name,ItemSnapshot Expected,ItemSnapshot Target,ItemSnapshot Modified,int Version,string? Parent,string Fingerprint,string Review,Dictionary<string,string>? Native);
 internal sealed record HistoryActionResult(string EventId,ItemSnapshot Before,ItemSnapshot After,int Version,bool Active);

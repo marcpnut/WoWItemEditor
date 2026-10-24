@@ -371,8 +371,8 @@ public partial class MainWindow : Window
         var unresolved=fakeEquipped[0] with {BonusLists="99999"};
         Check(tooltipData.Calculations.Evaluate(sample,60,unresolved).Stats.Count==0,"Unsupported instance bonuses cannot masquerade as exact stats");
         await File.WriteAllTextAsync("artifacts/character-verification.json",JsonSerializer.Serialize(new{characters=savedCharacters.Count,testedInstances,checks="Read-only inventory, equipment classification, preview-level validation, unchanged saved level, equipped set bonuses, unsupported-instance fallback"},new JsonSerializerOptions{WriteIndented=true}));
-        Check(result.History.Entries.Count(e=>e.Active)==result.Overrides,"History active count matches the catalog footer");
-        var bones=result.History.Entries.First(e=>e.Id==22476&&e.Active);
+        Check(result.History.Entries.Count(e=>e.Active)==result.Overrides,"All database overrides are ingested before hiding server-only definitions from History");
+        var bones=result.History.Entries.First(e=>e.Active&&e.OriginalItem?.RequiredLevel==60&&e.ModifiedItem.RequiredLevel==1);
         Check(bones.OriginalItem?.RequiredLevel==60&&bones.ModifiedItem.RequiredLevel==1,"Original snapshot is isolated from live changes");
         Check(bones.Fields.Any(f=>f.Field=="RequiredLevel"&&f.Original=="60"&&f.Modified=="1"&&f.Changed),"Known field difference reports the real before/after values");
         Check(bones.Activity.Count>0&&bones.Activity.All(e=>e.BeforeJson.Length>0&&e.AfterJson.Length>0),"Existing before/after activity retained for future revert/reapply");

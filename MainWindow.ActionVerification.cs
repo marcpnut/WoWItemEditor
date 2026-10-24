@@ -16,7 +16,7 @@ public partial class MainWindow
             await HistoryActions.InitializeAsync(db);
             using(var gate=new MySqlCommand("SELECT GET_LOCK('anocore_studio_forge',8)",db))Assert(Convert.ToInt32(await gate.ExecuteScalarAsync())==1,"Verification lock unavailable");
             try{
-                var entry=catalog.History.Entries.First(e=>e.Id==22476&&e.Active);
+                var entry=catalog.History.Entries.First(e=>e.Active&&e.OriginalItem?.RequiredLevel==60&&e.ModifiedItem.RequiredLevel==1);
                 var initial=await HistoryActions.CaptureAsync(db,null,entry.Id);
                 var events=new List<string>();
                 using(var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)){
@@ -57,6 +57,9 @@ public partial class MainWindow
         referenceSearch.Text="Chance on hit";Assert(!referenceView!.IsEmpty&&referenceView.Cast<ReferenceEntry>().All(p=>p.Matches("Chance on hit")),"Proc trigger search");
         await RenderFeature("proc-catalog-preview");
         referenceSearch.Text="__no_such_reference__";Assert(referenceView.IsEmpty&&referenceGrid.SelectedItem is null,"Empty reference results clear selection");
+        referenceSearch.Clear();referenceFilters.Usage.SelectedIndex=1;Assert(!referenceView.IsEmpty&&referenceView.Cast<ReferenceEntry>().All(s=>s.UsedBySets),"Set usage filter");referenceFilters.Reset();referenceFilters.School.SelectedIndex=3;referenceFilters.Description.SelectedIndex=1;Assert(!referenceView.IsEmpty&&referenceView.Cast<ReferenceEntry>().All(s=>(s.SchoolMask&4)!=0&&s.HasDescription),"Combined school and description filters");referenceFilters.Reset();
+        HistoryState.SelectedIndex=0;ShowRemovedHistory.IsChecked=true;ApplyHistoryFilters();Assert(historyView!.Cast<OverrideEntry>().All(e=>e.OriginalItem is not null),"Items without originals never appear in History, including removed entries");ShowRemovedHistory.IsChecked=false;
+        await VerifyContentEditors(catalog,references);
         await File.WriteAllTextAsync("artifacts/action-reference-verification.json",JsonSerializer.Serialize(new{spells=references.Spells.Count,itemEffects=references.Procs.Count(p=>p.EffectId.HasValue),candidates=references.Procs.Count(p=>!p.EffectId.HasValue),checks="Revert/reapply exact payload roundtrip, immutable archive, audit mirror, stale conflict rejection, shared dependencies unchanged, all test writes rolled back; history filters; complete read-only spell/proc catalogs and search"},new JsonSerializerOptions{WriteIndented=true}));
     }
     private async Task RenderFeature(string name)

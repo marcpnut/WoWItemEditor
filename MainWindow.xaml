@@ -11,9 +11,14 @@
     <RadioButton x:Name="ItemNav" Content="Item catalog" GroupName="Navigation" IsChecked="True" Checked="Navigate"/>
     <RadioButton Content="Spell catalog" GroupName="Navigation" Checked="Navigate"/>
     <RadioButton Content="Proc catalog" GroupName="Navigation" Checked="Navigate"/>
+    <Border Height="1" Background="#36383F" Margin="26,14,26,14"/>
+    <TextBlock Text="EDITORS" Foreground="#787F8C" FontSize="10" Margin="26,0,0,8"/>
+    <Button Content="Set bonuses" Click="OpenSetEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
+    <Button Content="Weapon procs" Click="OpenWeaponEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Border Height="1" Background="#36383F" Margin="26,20,26,20"/>
     <TextBlock Text="HISTORY" Foreground="#787F8C" FontSize="10" Margin="26,0,0,12"/>
     <RadioButton x:Name="HistoryNav" Content="Change history" GroupName="Navigation" Checked="Navigate"/>
+    <Button Content="Set &amp; proc changes" Click="OpenContentHistory" Margin="10,3"/>
    </StackPanel>
   </DockPanel></Border>
   <Grid Grid.Column="1" Margin="28,25,28,18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

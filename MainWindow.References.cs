@@ -15,12 +15,15 @@ public partial class MainWindow
     private TextBlock referenceCount=null!;
     private DataGrid referenceGrid=null!;
     private ICollectionView? referenceView;
+    private SpellFilters referenceFilters=null!;
     private void BuildReferencePage()
     {
         var layout=new DockPanel();ReferencePage.Children.Add(layout);
         var top=new StackPanel{Margin=new Thickness(0,0,0,16)};DockPanel.SetDock(top,Dock.Top);layout.Children.Add(top);
         top.Children.Add(new TextBlock{Text="Search name, exact spell/item-effect ID, description or trigger",Foreground=Brushes.LightGray,Margin=new Thickness(0,0,0,8)});
         referenceSearch=new TextBox();referenceSearch.TextChanged+=(_,_)=>FilterReferences();top.Children.Add(referenceSearch);
+        referenceFilters=new SpellFilters();referenceFilters.Changed+=FilterReferences;top.Children.Add(referenceFilters);
+        var clear=new Button{Content="Clear search & filters",HorizontalAlignment=HorizontalAlignment.Left};clear.Click+=(_,_)=>{referenceSearch.Clear();referenceFilters.Reset();};top.Children.Add(clear);
         referenceCount=new TextBlock{Margin=new Thickness(0,10,0,0),Foreground=Brushes.LightGray};top.Children.Add(referenceCount);
         var body=new Grid();body.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});body.ColumnDefinitions.Add(new(){Width=new GridLength(14)});body.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(body);
         referenceGrid=new DataGrid{IsReadOnly=true,AutoGenerateColumns=false,CanUserAddRows=false};referenceGrid.SelectionChanged+=(_,_)=>ShowReferenceSelection();body.Children.Add(referenceGrid);
@@ -42,12 +45,12 @@ public partial class MainWindow
             if(refresh){references=null;referenceLoad=null;referenceGeneration++;}
             if(references is null){referenceCount.Text="Loading installed spell tables and active MariaDB hotfixes…";referenceView=null;referenceGrid.ItemsSource=null;referenceDetails.Clear();int generation=referenceGeneration;referenceLoad??=ReferenceCatalog.LoadAsync();var loaded=await referenceLoad;if(generation!=referenceGeneration)return;references=loaded;}
             if(referenceMode!=page)return;
-            referenceView=CollectionViewSource.GetDefaultView(page=="Spell catalog"?references.Spells:references.Procs);referenceGrid.ItemsSource=referenceView;FilterReferences();
+            referenceFilters.Bind(references.Spells);referenceView=CollectionViewSource.GetDefaultView(page=="Spell catalog"?references.Spells:references.Procs);referenceGrid.ItemsSource=referenceView;FilterReferences();
         }catch(Exception ex){referenceLoad=null;if(referenceMode==page)referenceCount.Text="Could not load references: "+ex.Message;}
     }
     private void FilterReferences()
     {
-        if(referenceView is null)return;string query=referenceSearch.Text.Trim();referenceView.Filter=value=>value is ReferenceEntry entry&&entry.Matches(query);
+        if(referenceView is null)return;string query=referenceSearch.Text.Trim();referenceView.Filter=value=>value is ReferenceEntry entry&&entry.Matches(query)&&referenceFilters.Matches(entry);
         referenceCount.Text=$"{referenceView.Cast<ReferenceEntry>().Count():N0} shown · Read-only · Installed DB2 + active MariaDB hotfixes";
         if(referenceGrid.SelectedItem is null||!referenceView.Contains(referenceGrid.SelectedItem))referenceGrid.SelectedIndex=referenceView.IsEmpty?-1:0;ShowReferenceSelection();
     }

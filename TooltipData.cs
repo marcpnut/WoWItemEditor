@@ -56,9 +56,9 @@ public sealed class TooltipData
         if(Encoding.ASCII.GetString(header,0,4)!="WDC5") throw new InvalidOperationException($"Unsupported DB2 header: {table}");
         return BitConverter.ToUInt32(header,152);
     }
-    internal static async Task Overlay(MySqlConnection db,string table,string db2,Dictionary<int,Dictionary<string,string>> rows)
+    internal static async Task Overlay(MySqlConnection db,string table,string db2,Dictionary<int,Dictionary<string,string>> rows,MySqlTransaction? tx=null)
     {
-        var data=await HotfixReader.LoadAsync(db,table,Hash(db2));
+        var data=await HotfixReader.LoadAsync(db,table,Hash(db2),tx);
         foreach(var (id,row) in data.ActiveRows) {
             var fields=HotfixReader.Merge(rows.GetValueOrDefault(id),row);
             if(table=="spell_effect")fields["EffectBasePointsF"]=fields["EffectBasePoints"];
