@@ -6,7 +6,7 @@ public sealed record TooltipLine(string Text,string Color="#FFFFFF",string? Righ
 internal static class ItemTooltip
 {
     internal const string Gold="#FFD100",Green="#1EFF00",Gray="#8B8B95";
-    private static readonly Dictionary<int,string> StatNames=new() {
+    internal static readonly Dictionary<int,string> StatNames=new() {
         [0]="Mana",[1]="Health",[3]="Agility",[4]="Strength",[5]="Intellect",[6]="Spirit",[7]="Stamina",
         [12]="defense rating",[13]="dodge rating",[14]="parry rating",[15]="block rating",
         [16]="melee hit rating",[17]="ranged hit rating",[18]="spell hit rating",

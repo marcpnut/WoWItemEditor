@@ -7,7 +7,7 @@ namespace AnoWowItemEditor;
 internal sealed class SpellPicker : Window
 {
     internal ReferenceEntry? Selected {get;private set;}
-    internal SpellPicker(ReferenceCatalog catalog,bool procs)
+    internal SpellPicker(ReferenceCatalog catalog,bool procs,int? selectedSpellId=null,int? selectedEffectId=null)
     {
         Title=procs?"Choose a spell or item-effect template":"Choose a set-bonus spell";Width=1180;Height=790;MinWidth=850;MinHeight=600;WindowStartupLocation=WindowStartupLocation.CenterOwner;Background=new SolidColorBrush(Color.FromRgb(35,36,40));
         var layout=new DockPanel{Margin=new Thickness(20)};Content=layout;
@@ -21,10 +21,15 @@ internal sealed class SpellPicker : Window
         var grid=new Grid();grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});grid.ColumnDefinitions.Add(new(){Width=new GridLength(14)});grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(grid);
         var list=new DataGrid();list.Columns.Add(Column("Name","Name",2));list.Columns.Add(Column("Spell ID","SpellId",1));if(procs)list.Columns.Add(Column("Trigger","Trigger",1));grid.Children.Add(list);
         var detail=new TextBox{IsReadOnly=true,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetColumn(detail,2);grid.Children.Add(detail);
-        var view=new ListCollectionView((procs?catalog.Procs:catalog.Spells));list.ItemsSource=view;
+        var configured=catalog.Procs.Select(p=>p.SpellId).ToHashSet();
+        var pickerEntries=procs?catalog.Procs.Concat(catalog.Spells.Where(s=>!configured.Contains(s.SpellId))).ToList():catalog.Spells;
+        var view=new ListCollectionView(pickerEntries);list.ItemsSource=view;
         void Filter(){view.Filter=value=>value is ReferenceEntry entry&&entry.Matches(search.Text.Trim())&&filters.Matches(entry);count.Text=$"{view.Count:N0} matches · selection does not edit spell definitions";if(list.SelectedItem is null||!view.Contains(list.SelectedItem))list.SelectedIndex=view.IsEmpty?-1:0;}
         list.SelectionChanged+=(_,_)=>{Selected=list.SelectedItem as ReferenceEntry;choose.IsEnabled=Selected is not null;detail.Text=Selected?.Details??"No matching spells.";detail.ScrollToHome();};
-        search.TextChanged+=(_,_)=>Filter();filters.Changed+=Filter;choose.Click+=(_,_)=>{if(Selected is not null)DialogResult=true;};Filter();
+        search.TextChanged+=(_,_)=>Filter();filters.Changed+=Filter;choose.Click+=(_,_)=>{if(Selected is not null)DialogResult=true;};
+        if(selectedSpellId.HasValue)search.Text=selectedSpellId.Value.ToString();else Filter();
+        var selected=view.Cast<ReferenceEntry>().FirstOrDefault(e=>e.SpellId==selectedSpellId&&(!selectedEffectId.HasValue||e.EffectId==selectedEffectId))??view.Cast<ReferenceEntry>().FirstOrDefault(e=>e.SpellId==selectedSpellId);
+        if(selected is not null){list.SelectedItem=selected;Loaded+=(_,_)=>list.ScrollIntoView(selected);}
     }
     internal static DataGridTextColumn Column(string title,string property,double width=1)
     {

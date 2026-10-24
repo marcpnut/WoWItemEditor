@@ -291,11 +291,11 @@ public partial class MainWindow : Window
         Check(result.Items.Count(i=>i.Overridden)==result.Overrides,"Active MariaDB overrides applied");
         Check(catalogById[13009].Name=="Cow King's Hide"&&catalogById[14662].Name=="Keeper's Hooves","Definitions with different payload/registration builds are recovered");
         Check(catalogById[17776].ClassId==4&&catalogById[13009].ClassId==4,"Native item identities are preserved for SQL-provided sparse definitions");
-        var sample=items.First(i=>i.Id==22416);
-        var dreadnaught=tooltipData.Sets[sample.Number("ItemSet")];
+        var sample=result.Originals[22416];
+        var dreadnaught=result.OriginalTooltips.Sets[sample.Number("ItemSet")];
         Check(dreadnaught.Members.Length==9&&dreadnaught.Members.Contains(23059),"Dreadnaught includes nine pieces and its ring");
         Check(dreadnaught.Bonuses.Select(b=>b.Pieces).SequenceEqual(new[]{2,4,6,8}),"Dreadnaught bonus thresholds");
-        var tooltip=ItemTooltip.Build(sample,tooltipData,catalogById);
+        var tooltip=ItemTooltip.Build(sample,result.OriginalTooltips,result.Originals);
         string tooltipText=string.Join("\n",tooltip.Select(l=>l.Text+(l.Right is null?"":"    "+l.Right)));
         Check(tooltipText.Contains("+21 Strength")&&tooltipText.Contains("+43 Stamina")&&!tooltipText.Contains("allocation"),"Dreadnaught stats are calculated from local budget tables");
         Check(tooltipData.Calculations.Evaluate(sample,1).Stats[1]==tooltipData.Calculations.Evaluate(sample,60).Stats[1],"Fixed-level Dreadnaught is not artificially rescaled by character level");
@@ -322,7 +322,7 @@ public partial class MainWindow : Window
         OpenItem(23059);Check(ItemsGrid.SelectedItem is CatalogItem selectedRing&&selectedRing.Id==23059&&view!.Cast<CatalogItem>().Count()==9,"Member navigation preserves set browsing");
         Check(tooltip.Count(l=>l.TargetItem.HasValue)==9&&tooltip.Any(l=>l.TargetSet==523),"Set and all members are navigable");
         OpenItem(22416);
-        ItemsGrid.SelectedItem=sample; ItemsGrid.ScrollIntoView(sample);
+        ItemsGrid.SelectedItem=catalogById[sample.Id]; ItemsGrid.ScrollIntoView(catalogById[sample.Id]);
         await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);
         UpdateLayout();
         Directory.CreateDirectory("artifacts");
@@ -366,7 +366,7 @@ public partial class MainWindow : Window
         }
         var fakeEquipped=dreadnaught.Members.Take(2).Select((id,n)=>new OwnedItem((ulong)n+1,id,1,0,n,"Equipped",100,"","",0,0,true)).ToList();
         var fakeCharacter=new CharacterSnapshot(new CharacterInfo(0,"Preview test",60,1,false,0),fakeEquipped);
-        var equippedTooltip=ItemTooltip.Build(sample,tooltipData,catalogById,60,null,fakeCharacter);
+        var equippedTooltip=ItemTooltip.Build(sample,result.OriginalTooltips,result.Originals,60,null,fakeCharacter);
         Check(equippedTooltip.Any(l=>l.Text.Contains("(2/9)"))&&equippedTooltip.Any(l=>l.Text.StartsWith("(2) Set:")&&l.Color==ItemTooltip.Green)&&equippedTooltip.Any(l=>l.Text.StartsWith("(4) Set:")&&l.Color==ItemTooltip.Gray),"Equipped piece count and bonus thresholds");
         var unresolved=fakeEquipped[0] with {BonusLists="99999"};
         Check(tooltipData.Calculations.Evaluate(sample,60,unresolved).Stats.Count==0,"Unsupported instance bonuses cannot masquerade as exact stats");

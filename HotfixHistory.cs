@@ -6,7 +6,7 @@ namespace AnoWowItemEditor;
 
 public sealed record RecordedChange(string Id,int ItemId,string RecordedUtc,string Actor,string Action,string Summary,string Provenance,string BeforeJson,string AfterJson);
 public sealed record FieldComparison(string Field,string Original,string Modified,bool Changed,bool Known);
-public sealed record OverrideEntry(int Id,int Build,bool Active,CatalogItem? OriginalItem,CatalogItem ModifiedItem,string OriginalSource,string Source,string StateReason,List<RecordedChange> Activity,bool Managed=false,bool Hidden=false)
+public sealed record OverrideEntry(int Id,int Build,bool Active,CatalogItem? OriginalItem,CatalogItem ModifiedItem,string OriginalSource,string Source,string StateReason,List<RecordedChange> Activity,bool Managed=false,bool Hidden=false,string? ContentOperationId=null)
 {
     public string Key=>$"{Id}/{Build}";
     public string Name=>ModifiedItem.Name;
@@ -44,7 +44,7 @@ public sealed class HotfixHistory
             if(fields is null&&tables.TryGetProperty("item_sparse",out var sparse)&&sparse.ValueKind==JsonValueKind.Array)
                 fields=sparse.EnumerateArray().Where(r=>r.TryGetProperty("ID",out var value)&&value.ToString()==id.ToString(CultureInfo.InvariantCulture)).OrderBy(r=>r.TryGetProperty("VerifiedBuild",out var build)&&build.ToString()=="0"?0:1).Select(ReadFields).FirstOrDefault();
             if(fields is not null&&tables.TryGetProperty("item",out var identity)&&identity.ValueKind==JsonValueKind.Array)
-                foreach(var row in identity.EnumerateArray())if(row.TryGetProperty("ID",out var value)&&value.ToString()==id.ToString(CultureInfo.InvariantCulture))foreach(var field in new[]{"ClassID","SubclassID"})if(row.TryGetProperty(field,out var v))fields[field]=v.ToString();
+                foreach(var row in identity.EnumerateArray().Where(r=>r.TryGetProperty("ID",out var value)&&value.ToString()==id.ToString(CultureInfo.InvariantCulture)).OrderBy(r=>r.GetProperty("VerifiedBuild").ToString()=="0"?0:1).ThenByDescending(r=>int.Parse(r.GetProperty("VerifiedBuild").ToString(),CultureInfo.InvariantCulture)).Take(1))foreach(var field in new[]{"ClassID","SubclassID"})if((!original||!fields.ContainsKey(field))&&row.TryGetProperty(field,out var v))fields[field]=v.ToString();
         }
         return fields is not null&&fields.ContainsKey("Display")?new(fields):null;
     }
@@ -84,6 +84,7 @@ public sealed class HotfixHistory
             }catch(JsonException){history.Warnings.Add($"A retained snapshot for item {id} could not be decoded.");}
         }
         var active=sparse.ActiveRows;
+        var content=(await ContentEditing.ListAsync()).Where(o=>o.Kind=="Item").GroupBy(o=>o.EntityId).ToDictionary(g=>g.Key,g=>g.First());
         foreach(var (row,source) in rows) {
             int id=int.Parse(row["ID"],CultureInfo.InvariantCulture),build=int.TryParse(row.GetValueOrDefault("VerifiedBuild"),out var b)?b:70450;
             var changes=activity.GetValueOrDefault(id)??[];
@@ -99,7 +100,8 @@ public sealed class HotfixHistory
             else if(originals.TryGetValue(id,out var identity)){foreach(string key in new[]{"ClassID","SubclassID"})if(identity.Fields.TryGetValue(key,out var value))fields[key]=value;}
             var modified=isActive&&current.TryGetValue(id,out var now)?now:new CatalogItem(fields,true);
             string reason=isActive?"Latest registration is valid; this is the selected database payload.":source!="Database override"?"Retained snapshot; no matching database payload is active.":!sparse.Registrations.TryGetValue(id,out var registration)?"No hotfix registration is present.":$"Not selected as an active payload; latest registration status {registration.Status}.";
-            history.Entries.Add(new(id,build,isActive,baseline,modified,baseline is null?"Original definition unavailable":baselineSource,source,reason,changes,managed.Contains($"{id}/{build}"),!isActive&&hidden.Contains($"{id}/{build}")));
+            var operation=content.GetValueOrDefault(id);bool matches=operation is not null&&operation.Active==isActive&&SnapshotItem(operation.After,id)?.Number("VerifiedBuild")==build;
+            history.Entries.Add(new(id,build,isActive,baseline,modified,baseline is null?"Original definition unavailable":baselineSource,source,reason,changes,managed.Contains($"{id}/{build}"),!isActive&&hidden.Contains($"{id}/{build}"),matches?operation!.Id:null));
         }
         return history;
     }

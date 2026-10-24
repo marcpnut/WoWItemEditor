@@ -36,7 +36,7 @@ public sealed class CatalogRepository
         return new(catalog,active.Count,db.DataSource,tooltips,originals,originalTooltips,history);
     }
     private static string Value(object? value) => value is null or DBNull ? "" : Convert.ToString(value,CultureInfo.InvariantCulture) ?? "";
-    private static Dictionary<int,CatalogItem> LoadBaseline()
+    internal static Dictionary<int,CatalogItem> LoadBaseline()
     {
         var reader = new DBCD.DBCD(new FilesystemDBCProvider(Db2Folder),new GithubDBDProvider());
         var sparse=reader.Load("ItemSparse","7.3.5.70450");

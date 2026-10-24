@@ -14,7 +14,8 @@ public partial class MainWindow
         static void Assert(bool value,string message){if(!value)throw new InvalidOperationException(message);}
         var set=await ContentEditing.LoadAsync("Set",523,catalog.Tooltips.Sets[523].Members.Length);
         Assert(set.Initial.Count>=2,"Real set bonus fixture");
-        var setDraft=set.Initial.SkipLast(1).Select((r,n)=>n==0?r with{SpellId=28846}:r).Append(new ContentRow(0,0,28846,1)).ToArray();ContentEditing.Validate(set,setDraft,refs);
+        int newThreshold=Enumerable.Range(1,set.MaxPieces).First(n=>set.Initial.SkipLast(1).All(r=>r.Pieces!=n));
+        var setDraft=set.Initial.SkipLast(1).Select((r,n)=>n==0?r with{SpellId=r.SpellId==28846?28844:28846}:r).Append(new ContentRow(0,0,28846,newThreshold)).ToArray();ContentEditing.Validate(set,setDraft,refs);
         int weaponId=catalog.Items.Any(i=>i.Id==17182)?17182:catalog.Items.First(i=>i.ClassId==2&&catalog.Tooltips.ItemSpells.ContainsKey(i.Id)).Id;
         var weapon=await ContentEditing.LoadAsync("Proc",weaponId);
         Assert(weapon.Initial.Count>=2,"Real weapon proc fixture");
@@ -37,7 +38,7 @@ public partial class MainWindow
                         async Task<Dictionary<int,Dictionary<string,string>>> Effective(){var rows=session.Native[table].ToDictionary(p=>p.Key,p=>new Dictionary<string,string>(p.Value,StringComparer.OrdinalIgnoreCase));await TooltipData.Overlay(db,table,dbc,rows,tx);return rows.Where(p=>TooltipData.Number(p.Value,parent)==session.Scope.EntityId).ToDictionary();}
                         var effective=await Effective();Assert(effective.Count==draft.Length,"Added and removed rows become effective");
                         Assert(session.Initial.Where(r=>draft.All(d=>d.Id!=r.Id)).All(r=>!effective.ContainsKey(r.Id)),"Removed native records are disabled");
-                        if(session.Scope.Kind=="Set")Assert(effective.Values.Any(r=>TooltipData.Number(r,"Threshold")==1)&&effective.Values.Any(r=>TooltipData.Number(r,"SpellID")==28846),"Set thresholds and spells saved");
+                        if(session.Scope.Kind=="Set")Assert(effective.Values.Any(r=>TooltipData.Number(r,"Threshold")==newThreshold)&&effective.Values.Any(r=>TooltipData.Number(r,"SpellID")==28846),"Set thresholds and spells saved");
                         else{
                             var after=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;var clones=after.Tables["item_effect"].Where(r=>!session.Scope.EffectIds.Contains(int.Parse(r["ID"]!))).ToList();Assert(clones.Count==2&&clones.Any(r=>r["CoolDownMSec"]=="12345")&&clones.Any(r=>r["CoolDownMSec"]=="23456"),"Modified and added assignments each get a separate effect");
                             foreach(int effect in session.Scope.EffectIds)Assert(JsonSerializer.Serialize(session.Expected.Tables["item_effect"].Where(r=>r["ID"]==effect.ToString()))==JsonSerializer.Serialize(after.Tables["item_effect"].Where(r=>r["ID"]==effect.ToString())),"Existing shared effect payloads are preserved");

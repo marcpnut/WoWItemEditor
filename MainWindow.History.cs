@@ -97,7 +97,7 @@ public partial class MainWindow
         RemoveHistoryButton.ToolTip=entry.Active?"Only inactive entries can be removed.":"Change visibility in history; stored item data and activity remain available.";
         RevertButton.IsEnabled=!historyActionBusy&&entry.Active&&(entry.Managed||native);
         RevertButton.ToolTip=native||entry.Managed?"Review reverting the selected item-field override":"Original client definition is unavailable; a safe revert is not possible.";
-        ReapplyButton.IsEnabled=!historyActionBusy&&!entry.Active&&(entry.Managed||entry.Source=="Database override");
+        ReapplyButton.IsEnabled=!historyActionBusy&&!entry.Active&&(entry.Managed||entry.ContentOperationId is not null||entry.Source=="Database override");
         ReapplyButton.ToolTip=entry.Managed||entry.Source=="Database override"?"Review activating the retained item-field override":"A complete restorable payload is unavailable for this activity snapshot.";
         ModifiedHistoryTitle.Text=entry.Active?"CURRENT · ACTIVE":"MODIFIED · INACTIVE (RETAINED)";
         ModifiedHistorySource.Text=entry.Active?$"Effective database item · Preview level {historyLevel}":$"Stored item fields for a future reapply; not active. Preview level {historyLevel}. Referenced spells/sets use current tables.";
@@ -129,6 +129,12 @@ public partial class MainWindow
         if(historyActionBusy||loadedCatalog is null||HistoryGrid.SelectedItem is not OverrideEntry entry||entry.Active==reapply)return;
         historyActionBusy=true;ShowHistorySelection();Reload.IsEnabled=false;
         try {
+            if(entry.ContentOperationId is not null){
+                var op=(await ContentEditing.ListAsync()).Single(o=>o.Id==entry.ContentOperationId);
+                var current=System.Text.Json.JsonSerializer.Deserialize<ItemSnapshot>(op.Active?op.After:op.Before)!;var target=System.Text.Json.JsonSerializer.Deserialize<ItemSnapshot>(op.Active?op.Before:op.After)!;
+                var confirmation=new ContentReviewWindow("item",entry.Name,ItemEditing.SnapshotSummary(current),ItemEditing.SnapshotSummary(target)){Owner=this};if(confirmation.ShowDialog()!=true)return;
+                await ContentEditing.ToggleAsync(op);await LoadCatalog();HistoryCount.Text+=" Saved successfully. Reload the server and verify in game.";return;
+            }
             var plan=await HistoryActions.PrepareAsync(entry,loadedCatalog.Originals);
             var review=new HistoryActionReview(plan){Owner=this};
             if(review.ShowDialog()!=true)return;

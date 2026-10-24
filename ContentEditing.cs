@@ -5,19 +5,19 @@ using DBCD.Providers;
 using MySqlConnector;
 namespace AnoWowItemEditor;
 
-internal sealed record ContentRow(int Id,int EffectId,int SpellId,int Pieces=2,int Specialization=0,int Trait=0,int Trigger=2,int Cooldown=-1,int CategoryCooldown=-1,int Charges=0,int Slot=0,int Category=0,int Condition=0)
+internal sealed record ContentRow(int Id,int EffectId,int SpellId,int Pieces=2,int Specialization=0,int Trait=0,int Trigger=2,int Cooldown=-1,int CategoryCooldown=-1,int Charges=0,int Slot=0,int Category=0,int Condition=0,BonusDraft? Bonus=null)
 {
     public string TriggerLabel=>ReferenceCatalog.Trigger(Trigger);
 }
-internal sealed record ContentScope(string Kind,int EntityId,int[] RowIds,int[] EffectIds,int[] NativeRowIds,int[] NativeEffectIds);
+internal sealed record ContentScope(string Kind,int EntityId,int[] RowIds,int[] EffectIds,int[] NativeRowIds,int[] NativeEffectIds,BonusScope? Bonus=null,string? ItemFingerprint=null);
 internal sealed record ContentSession(ContentScope Scope,List<ContentRow> Initial,ItemSnapshot Expected,string Fingerprint,Dictionary<string,Dictionary<int,Dictionary<string,string>>> Native,Dictionary<int,Dictionary<string,string>> EffectiveRows,Dictionary<int,Dictionary<string,string>> EffectiveEffects,int MaxPieces);
 internal sealed record ContentOperation(string Id,string Kind,int EntityId,string Name,bool Active,bool Hidden,int Version,string Before,string After,string Expected,string Scope,string Fingerprint,string RecordedUtc);
 
 internal static class ContentEditing
 {
     internal const string Operations="anocore_studio_backup.item_editor_content_operations";
-    private static readonly Dictionary<string,string> Tables=new(){["item_set_spell"]="ItemSetSpell",["item_effect"]="ItemEffect",["item_x_item_effect"]="ItemXItemEffect",["item_set"]="ItemSet"};
-    internal static string Fingerprint()=>string.Join("/",Tables.Values.Append("ItemSparse").Select(n=>{var f=new FileInfo(Path.Combine(CatalogRepository.Db2Folder,n+".db2"));return $"{f.Length}:{f.LastWriteTimeUtc.Ticks}";}));
+    internal static readonly Dictionary<string,string> Tables=new(){["item_set_spell"]="ItemSetSpell",["item_effect"]="ItemEffect",["item_x_item_effect"]="ItemXItemEffect",["item_set"]="ItemSet",["item_sparse"]="ItemSparse",["item"]="Item"};
+    internal static string Fingerprint()=>string.Join("/",new[]{"ItemSetSpell","ItemEffect","ItemXItemEffect","ItemSet","ItemSparse"}.Select(n=>{var f=new FileInfo(Path.Combine(CatalogRepository.Db2Folder,n+".db2"));return $"{f.Length}:{f.LastWriteTimeUtc.Ticks}";}));
     private static int N(IReadOnlyDictionary<string,string> row,string key)=>int.TryParse(row.GetValueOrDefault(key),out int n)?n:0;
     internal static async Task InitializeAsync(MySqlConnection db)
     {
@@ -55,6 +55,7 @@ internal static class ContentEditing
     }
     internal static async Task<ItemSnapshot> CaptureAsync(MySqlConnection db,MySqlTransaction? tx,ContentScope scope,bool locked=false)
     {
+        if(scope.Kind=="Item")return await HistoryActions.CaptureAsync(db,tx,scope.EntityId,locked);
         string suffix=locked?" FOR UPDATE":"";int id=scope.EntityId;var tables=new Dictionary<string,List<Dictionary<string,string?>>>();
         string main=scope.Kind=="Set"?"item_set_spell":"item_x_item_effect",parent=scope.Kind=="Set"?"ItemSetID":"ItemID";
         tables[main]=await Query(db,tx,$"SELECT * FROM {main} WHERE {parent}=@id OR ID IN({Ids(scope.RowIds)}) ORDER BY ID,VerifiedBuild"+suffix,id);
@@ -70,7 +71,9 @@ internal static class ContentEditing
         }else{
             tables["item_set"]=await Query(db,tx,"SELECT * FROM item_set WHERE ID=@id ORDER BY VerifiedBuild"+suffix,id);hashes.Add($"(TableHash={TooltipData.Hash("ItemSet")} AND RecordId=@id)");
         }
-        tables["hotfix_data"]=await Query(db,tx,$"SELECT * FROM hotfix_data WHERE {string.Join(" OR ",hashes)} ORDER BY Id,UniqueId"+suffix,id);return new(tables);
+        tables["hotfix_data"]=await Query(db,tx,$"SELECT * FROM hotfix_data WHERE {string.Join(" OR ",hashes)} ORDER BY Id,UniqueId"+suffix,id);
+        if(scope.Bonus is not null)foreach(var p in (await BonusSpells.CaptureAsync(db,tx,scope.Bonus,locked)).Tables)tables[p.Key]=p.Value;
+        return new(tables);
     }
     internal static void Validate(ContentSession session,IReadOnlyList<ContentRow> draft,ReferenceCatalog references)
     {
@@ -79,6 +82,7 @@ internal static class ContentEditing
         foreach(var row in draft){
             if(session.Initial.Contains(row))continue;
             if(row.SpellId<=0||!known.Contains(row.SpellId))throw new InvalidOperationException($"Spell {row.SpellId} is not in the available spell catalog.");
+            if(row.Bonus is not null){if(session.Scope.Kind!="Set"||row.Bonus.Source.Root!=row.SpellId)throw new InvalidOperationException("Bonus values belong to another spell.");BonusSpells.Validate(row.Bonus);}
             if(row.Specialization is <0 or >65535||row.Trait is <0 or >65535)throw new InvalidOperationException("Specialization and trait IDs must be 0–65535.");
             if(session.Scope.Kind=="Set"&& (row.Pieces<1||row.Pieces>Math.Min(255,session.MaxPieces)))throw new InvalidOperationException($"Pieces must be from 1 to {Math.Min(255,session.MaxPieces)} for this set.");
             if(session.Scope.Kind=="Proc"&& (row.Trigger is not (0 or 1 or 2 or 5 or 6)||row.Cooldown< -1||row.CategoryCooldown< -1||row.Charges is < -32768 or >32767||row.Slot is <0 or >4||row.Category is <0 or >65535||row.Condition<0))throw new InvalidOperationException("Check trigger, cooldowns (milliseconds; -1 = spell default), charges, slot (0–4), category and condition IDs.");
@@ -91,7 +95,7 @@ internal static class ContentEditing
     {
         using var cmd=new MySqlCommand($"SELECT GREATEST(COALESCE((SELECT MAX(ID) FROM {table}),0),COALESCE((SELECT MAX(RecordId) FROM hotfix_data WHERE TableHash=@hash),0))",db,tx);cmd.Parameters.AddWithValue("@hash",TooltipData.Hash(Tables[table]));long max=Math.Max(Convert.ToInt64(await cmd.ExecuteScalarAsync()),session.Native[table].Keys.DefaultIfEmpty().Max());return checked((int)(max+1));
     }
-    private static async Task Upsert(MySqlConnection db,MySqlTransaction tx,string table,Dictionary<string,string?> values)
+    internal static async Task Upsert(MySqlConnection db,MySqlTransaction tx,string table,Dictionary<string,string?> values)
     {
         if(!Tables.ContainsKey(table))throw new InvalidOperationException("Unsupported content table");
         var columns=await Query(db,tx,$"SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='{table}' ORDER BY ORDINAL_POSITION",0);
@@ -99,7 +103,7 @@ internal static class ContentEditing
         if(keys.Any(k=>!values.ContainsKey(k)))throw new InvalidOperationException($"Unmapped {table} field; saving is blocked to preserve the server schema.");
         using var cmd=new MySqlCommand($"INSERT INTO {table} ({string.Join(',',keys.Select(k=>$"`{k}`"))}) VALUES({string.Join(',',keys.Select((_,n)=>"@v"+n))}) ON DUPLICATE KEY UPDATE {string.Join(',',keys.Where(k=>k is not ("ID" or "VerifiedBuild")).Select(k=>$"`{k}`=VALUES(`{k}`)"))}",db,tx);for(int n=0;n<keys.Length;n++)cmd.Parameters.AddWithValue("@v"+n,(object?)values[keys[n]]??DBNull.Value);await cmd.ExecuteNonQueryAsync();
     }
-    private static async Task Register(MySqlConnection db,MySqlTransaction tx,string table,int id,int status=1)
+    internal static async Task Register(MySqlConnection db,MySqlTransaction tx,string table,int id,int status=1)
     {
         using var next=new MySqlCommand("SELECT COALESCE(MAX(Id),0)+1 FROM hotfix_data FOR UPDATE",db,tx);long push=Convert.ToInt64(await next.ExecuteScalarAsync());if(push>int.MaxValue)throw new InvalidOperationException("Hotfix push IDs exhausted.");
         using var cmd=new MySqlCommand("INSERT INTO hotfix_data(Id,UniqueId,TableHash,RecordId,Status,VerifiedBuild) VALUES(@push,@push,@hash,@id,@status,0)",db,tx);cmd.Parameters.AddWithValue("@push",push);cmd.Parameters.AddWithValue("@hash",TooltipData.Hash(Tables[table]));cmd.Parameters.AddWithValue("@id",id);cmd.Parameters.AddWithValue("@status",status);await cmd.ExecuteNonQueryAsync();
@@ -122,8 +126,11 @@ internal static class ContentEditing
         if(Fingerprint()!=session.Fingerprint||HistoryActions.Canonical(await CaptureAsync(db,tx,session.Scope,true))!=HistoryActions.Canonical(session.Expected))throw new InvalidOperationException("Conflict: this content changed after it was loaded. Reopen it before saving.");
         string main=session.Scope.Kind=="Set"?"item_set_spell":"item_x_item_effect";
         var writes=new List<(string Table,int Id,Dictionary<string,string?> Row)>();var removed=session.Initial.Where(old=>draft.All(r=>r.Id!=old.Id)).ToList();
+        var bonusPlans=new List<(int Index,BonusDraft Draft,int Root,BonusScope Scope)>();var reservations=new Dictionary<string,int>();
+        for(int n=0;n<draft.Length;n++)if(draft[n].Bonus is {} bonus){var allocated=await BonusSpells.AllocateAsync(db,tx,bonus,reservations);bonusPlans.Add((n,bonus,allocated.Root,allocated.Scope));}
+        var retained=draft.ToArray();foreach(var plan in bonusPlans)retained[plan.Index]=retained[plan.Index] with{SpellId=plan.Root,Bonus=null};
         int nextMain=await Allocate(db,tx,session,main),nextEffect=await Allocate(db,tx,session,"item_effect");
-        foreach(var row in draft.Where(r=>!session.Initial.Contains(r))){
+        foreach(var row in retained.Where(r=>!session.Initial.Contains(r))){
             int id=row.Id==0?nextMain++:row.Id;var values=Values(session.EffectiveRows.GetValueOrDefault(row.Id));
             values["ID"]=id.ToString();values["VerifiedBuild"]="0";
             if(session.Scope.Kind=="Set"){
@@ -136,16 +143,18 @@ internal static class ContentEditing
             writes.Add((main,id,values));
         }
         var scope=session.Scope with{RowIds=session.Scope.RowIds.Concat(writes.Where(w=>w.Table==main).Select(w=>w.Id)).Distinct().ToArray(),EffectIds=session.Scope.EffectIds.Concat(writes.Where(w=>w.Table=="item_effect").Select(w=>w.Id)).Distinct().ToArray()};
+        if(bonusPlans.Count>0)scope=scope with{Bonus=BonusSpells.Merge(bonusPlans.Select(p=>p.Scope))};
         var before=(await CaptureAsync(db,tx,scope,true)) with{ContentRows=session.Initial.ToArray()};
+        foreach(var plan in bonusPlans)await BonusSpells.ApplyAsync(db,tx,plan.Draft,plan.Scope);
         foreach(var write in writes){await Upsert(db,tx,write.Table,write.Row);await Register(db,tx,write.Table,write.Id);}
         foreach(var row in removed)await Register(db,tx,main,row.Id,2);
-        var after=(await CaptureAsync(db,tx,scope,true)) with{ContentRows=draft};string operation=Guid.NewGuid().ToString();
+        var after=(await CaptureAsync(db,tx,scope,true)) with{ContentRows=retained};string operation=Guid.NewGuid().ToString();
         using(var cmd=new MySqlCommand($"INSERT INTO {Operations}(OperationId,Kind,EntityId,Name,IsActive,IsHidden,Version,BeforeJson,AfterJson,ExpectedJson,ScopeJson,Fingerprint,RecordedUtc) VALUES(@op,@kind,@id,@name,1,0,1,@before,@after,@after,@scope,@fingerprint,UTC_TIMESTAMP(6))",db,tx)){
             cmd.Parameters.AddWithValue("@op",operation);cmd.Parameters.AddWithValue("@kind",scope.Kind);cmd.Parameters.AddWithValue("@id",scope.EntityId);cmd.Parameters.AddWithValue("@name",name);cmd.Parameters.AddWithValue("@before",HistoryActions.Serialize(before));cmd.Parameters.AddWithValue("@after",HistoryActions.Serialize(after));cmd.Parameters.AddWithValue("@scope",JsonSerializer.Serialize(scope));cmd.Parameters.AddWithValue("@fingerprint",session.Fingerprint);await cmd.ExecuteNonQueryAsync();
         }
         await Audit(db,tx,scope,$"Save {scope.Kind} edit",name,operation,before,after);return operation;
     }
-    private static async Task Audit(MySqlConnection db,MySqlTransaction tx,ContentScope scope,string action,string name,string parent,ItemSnapshot before,ItemSnapshot after)
+    internal static async Task Audit(MySqlConnection db,MySqlTransaction tx,ContentScope scope,string action,string name,string parent,ItemSnapshot before,ItemSnapshot after)
     {
         string eventId=Guid.NewGuid().ToString();using(var cmd=new MySqlCommand("INSERT INTO anocore_studio_changes(ChangeId,ChangedUtc,Actor,EntityType,EntityId,Action,Summary,BeforeJson,AfterJson,Provenance,SourceKey) VALUES(@event,UTC_TIMESTAMP(6),@actor,@kind,@id,@action,@summary,@before,@after,@provenance,@key)",db,tx)){
             cmd.Parameters.AddWithValue("@event",eventId);cmd.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);cmd.Parameters.AddWithValue("@kind",scope.Kind);cmd.Parameters.AddWithValue("@id",scope.EntityId);cmd.Parameters.AddWithValue("@action",action);cmd.Parameters.AddWithValue("@summary",$"{name} · {action}. Server reload pending.");cmd.Parameters.AddWithValue("@before",HistoryActions.Serialize(before));cmd.Parameters.AddWithValue("@after",HistoryActions.Serialize(after));cmd.Parameters.AddWithValue("@provenance","AnoWoW Item Editor; operation "+parent);cmd.Parameters.AddWithValue("@key","ItemEditor:"+eventId);await cmd.ExecuteNonQueryAsync();
@@ -171,11 +180,12 @@ internal static class ContentEditing
         var actual=ReadOperations(await Query(db,tx,$"SELECT * FROM {Operations} WHERE OperationId='{Guid.Parse(op.Id)}' FOR UPDATE",0)).Single();
         if(actual.Version!=op.Version||actual.Active!=op.Active||op.Fingerprint!=Fingerprint())throw new InvalidOperationException("Conflict: operation or client definitions changed. Refresh history.");
         var scope=JsonSerializer.Deserialize<ContentScope>(op.Scope)!;var current=await CaptureAsync(db,tx,scope,true);
+        if(scope.ItemFingerprint is not null&&scope.ItemFingerprint!=ItemEditing.IdentityFingerprint())throw new InvalidOperationException("The native item identity changed after this edit. Automatic restore is blocked.");
         var expected=JsonSerializer.Deserialize<ItemSnapshot>(op.Expected)!;
         if(HistoryActions.Canonical(current)!=HistoryActions.Canonical(expected))throw new InvalidOperationException("Conflict: newer edits or shared references exist. This archived edit cannot be applied automatically; reopen the editor to review the current configuration.");
         var target=JsonSerializer.Deserialize<ItemSnapshot>(op.Active?op.Before:op.After)!;
         var before=JsonSerializer.Deserialize<ItemSnapshot>(op.Before)!;var after=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;
-        foreach(string table in (scope.Kind=="Set"?new[]{"item_set_spell"}:new[]{"item_effect","item_x_item_effect"})){
+        foreach(string table in (scope.Kind=="Set"?new[]{"item_set_spell"}:scope.Kind=="Item"?new[]{"item_sparse","item"}:new[]{"item_effect","item_x_item_effect"})){
             var ids=before.Tables[table].Concat(after.Tables[table]).Select(r=>int.Parse(r["ID"]!)).Concat(scope.Kind=="Set"||table=="item_x_item_effect"?scope.RowIds:scope.EffectIds).Distinct();
             foreach(int id in ids){
                 var oldRows=before.Tables[table].Where(r=>r["ID"]==id.ToString()).ToList();var newRows=after.Tables[table].Where(r=>r["ID"]==id.ToString()).ToList();
@@ -186,11 +196,12 @@ internal static class ContentEditing
                 foreach(var row in target.Tables[table].Where(r=>r["ID"]==id.ToString()))await Upsert(db,tx,table,row);
                 var reg=target.Tables["hotfix_data"].Where(r=>r["TableHash"]==hash.ToString()&&r["RecordId"]==id.ToString()).OrderByDescending(r=>long.Parse(r["Id"]!)).ThenByDescending(r=>long.Parse(r["UniqueId"]!)).FirstOrDefault();
                 // A previously unregistered native row remains valid; a newly allocated row is removed.
-                bool native=(table=="item_effect"?scope.NativeEffectIds:scope.NativeRowIds).Contains(id);
+                bool native=(table is "item_effect" or "item"?scope.NativeEffectIds:scope.NativeRowIds).Contains(id);
                 int status=reg is not null?int.Parse(reg["Status"]!):native?1:target.Tables[table].Any(r=>r["ID"]==id.ToString())?3:2;
                 await Register(db,tx,table,id,status);
             }
         }
+        if(scope.Bonus is not null)await BonusSpells.RestoreAsync(db,tx,scope.Bonus,target);
         var resulting=await CaptureAsync(db,tx,scope,true);
         using(var cmd=new MySqlCommand($"UPDATE {Operations} SET IsActive=@active,IsHidden=0,Version=Version+1,ExpectedJson=@expected WHERE OperationId=@op",db,tx)){cmd.Parameters.AddWithValue("@active",!op.Active);cmd.Parameters.AddWithValue("@expected",HistoryActions.Serialize(resulting));cmd.Parameters.AddWithValue("@op",op.Id);await cmd.ExecuteNonQueryAsync();}
         await Audit(db,tx,scope,op.Active?"Revert content edit":"Reapply content edit",op.Name,op.Id,current,resulting);

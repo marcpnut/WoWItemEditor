@@ -104,4 +104,17 @@ public sealed class ItemCalculations
         string note=curve==0?"Fixed item level: changing character level does not scale this item’s base stats.":$"Item scaling calculated at level {(instance?.FixedLevel>0?instance.FixedLevel:level)}.";
         return new(itemLevel,armor,stats,minDamage,maxDamage,dps,note);
     }
+    internal int AllocationFor(CatalogItem item,int index,int amount,int level)
+    {
+        if(amount is <0 or >1000000)throw new InvalidOperationException("Stat values must be between 0 and 1,000,000.");
+        if(amount==0)return 0;
+        var fields=new Dictionary<string,string>(item.Fields,StringComparer.OrdinalIgnoreCase);var candidate=new CatalogItem(fields);
+        int? Value(int allocation){fields["StatPercentEditor"+index]=allocation.ToString(System.Globalization.CultureInfo.InvariantCulture);return Evaluate(candidate,level).Stats.GetValueOrDefault(index);}
+        fields["StatPercentEditor"+index]="10000";
+        if(!Evaluate(candidate,level).Stats.ContainsKey(index))throw new InvalidOperationException("This item's stat calculation is unsupported at the chosen preview level. Use a supported item/quality/slot/level or edit its stored allocation in Advanced fields.");
+        int low=1,high=int.MaxValue;
+        while(low<high){int mid=low+(int)(((long)high-low)/2);if(Value(mid)>=amount)high=mid;else low=mid+1;}
+        if(Value(low)!=amount)throw new InvalidOperationException("That exact stat value cannot be represented by this item's allocation. Try a nearby value.");
+        return low;
+    }
 }

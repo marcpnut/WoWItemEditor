@@ -33,13 +33,15 @@ public partial class MainWindow
         var detail=new DockPanel();Grid.SetColumn(detail,2);body.Children.Add(detail);
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new Thickness(0,0,0,12)};DockPanel.SetDock(actions,Dock.Top);detail.Children.Add(actions);
         foreach(bool effect in new[]{false,true}){var copy=new Button{Content=effect?"Copy effect ID":"Copy spell ID",Margin=new Thickness(0,0,10,0)};copy.Click+=(_,_)=>{if(referenceGrid.SelectedItem is ReferenceEntry entry){string? id=effect?entry.EffectId?.ToString():entry.SpellId.ToString();if(id is not null)Clipboard.SetText(id);}};actions.Children.Add(copy);}
+        var editBonus=new Button{Content="Edit in a set…",ToolTip="Edit values for a set that uses the selected spell"};editBonus.Click+=async(_,_)=>{if(referenceGrid.SelectedItem is ReferenceEntry entry)await OpenSpellSetEditor(entry);};actions.Children.Add(editBonus);
         referenceDetails=new TextBox{IsReadOnly=true,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Padding=new Thickness(16)};detail.Children.Add(referenceDetails);
     }
     private async Task ShowReferencePage(string page,bool refresh=false)
     {
         if(referenceSearch is null)BuildReferencePage();
+        if(referenceMode!=page){referenceSearch!.Clear();referenceFilters.Reset();}
         referenceMode=page;historyMode=characterMode=false;HistoryPage.Visibility=CatalogPage.Visibility=Placeholder.Visibility=Visibility.Collapsed;ReferencePage.Visibility=Visibility.Visible;
-        PageTitle.Text=page;PageSubtitle.Text=page=="Spell catalog"?"All available spells for set bonuses and item effects. Read-only reference.":"All item-effect definitions and spell candidates. Read-only reference for weapon procs and bonuses.";
+        PageTitle.Text=page;PageSubtitle.Text=page=="Spell catalog"?"All spells, including set bonuses. Select a spell to inspect it or edit a set that uses it.":"Configured item effects and spells with proc rules. Use the Spell catalog for all other spells.";
         Reload.Visibility=Visibility.Visible;Reload.Content="↻   Refresh references";
         try{
             if(refresh){references=null;referenceLoad=null;referenceGeneration++;}
@@ -50,8 +52,9 @@ public partial class MainWindow
     }
     private void FilterReferences()
     {
-        if(referenceView is null)return;string query=referenceSearch.Text.Trim();referenceView.Filter=value=>value is ReferenceEntry entry&&entry.Matches(query)&&referenceFilters.Matches(entry);
-        referenceCount.Text=$"{referenceView.Cast<ReferenceEntry>().Count():N0} shown · Read-only · Installed DB2 + active MariaDB hotfixes";
+        if(referenceView is null)return;string query=referenceSearch.Text.Trim();bool exactId=int.TryParse(query,out int id)&&id>0;
+        referenceView.Filter=value=>value is ReferenceEntry entry&&(exactId?(entry.SpellId==id||referenceMode=="Proc catalog"&&entry.EffectId==id):entry.Matches(query)&&referenceFilters.Matches(entry));
+        referenceCount.Text=$"{referenceView.Cast<ReferenceEntry>().Count():N0} shown · "+(exactId?"Exact ID lookup ignores filters · ":"")+"Installed DB2 + active MariaDB hotfixes";
         if(referenceGrid.SelectedItem is null||!referenceView.Contains(referenceGrid.SelectedItem))referenceGrid.SelectedIndex=referenceView.IsEmpty?-1:0;ShowReferenceSelection();
     }
     private void ShowReferenceSelection(){referenceDetails.Text=referenceGrid.SelectedItem is ReferenceEntry entry?$"{entry.Name}\n{entry.Kind} · {entry.Trigger}\n\n{entry.Details}":"No matching records.";referenceDetails.ScrollToHome();}

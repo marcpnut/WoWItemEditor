@@ -113,6 +113,7 @@ public sealed class TooltipData
             foreach(int id in wanted) if(spells.TryGetValue(id,out var spell)) result.Spells[id]=spell;
         });
         var names=await Task.Run(()=>LoadTable(reader,"SpellName",r=>wanted.Contains(Number(r,"ID"))));
+        if(includeOverrides)await SpellBlobs.OverlayAsync(db,result.Spells);
         await Apply("spell_name","SpellName",names);
         foreach(var (id,name) in names) { if(!result.Spells.TryGetValue(id,out var spell)) result.Spells[id]=spell=[]; spell["Name"]=Read(name,"Name"); }
         var effects=await Task.Run(()=>LoadTable(reader,"SpellEffect",r=>wanted.Contains(Number(r,"SpellID"))));

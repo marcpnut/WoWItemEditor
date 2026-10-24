@@ -11,7 +11,7 @@ internal sealed class ContentEditorWindow : Window
 {
     private readonly string kind;
     private readonly CatalogResult catalog;
-    private readonly ReferenceCatalog references;
+    private ReferenceCatalog references;
     private readonly List<ContentChoice> choices;
     private readonly ListBox entities=new(){DisplayMemberPath="Label"};
     private readonly TextBox search=new(),feedback=new(){IsReadOnly=true,TextWrapping=TextWrapping.Wrap,BorderThickness=new Thickness(0)};
@@ -24,6 +24,8 @@ internal sealed class ContentEditorWindow : Window
     private readonly Button add=new(){Content="Add bonus"},change=new(){Content="Change selected"},remove=new(){Content="Remove selected"};
     private readonly StackPanel controls=new();
     private readonly TextBlock heading=new(){FontSize=22,Margin=new Thickness(0,0,0,10),Foreground=Brushes.LightSkyBlue,TextTrimming=TextTrimming.CharacterEllipsis};
+    private readonly Expander settings=new(){IsExpanded=false,Foreground=Brushes.LightGray};
+    private readonly ComboBox equippedPreview=new(){DisplayMemberPath="Label",Width=160};
     private ContentSession? session;
     private ContentChoice? choice;
     private int request;
@@ -31,10 +33,11 @@ internal sealed class ContentEditorWindow : Window
     internal bool Saved {get;private set;}
     internal ContentSession? Session=>session;
     internal ObservableCollection<ContentRow> Draft=>draft;
-    internal ContentEditorWindow(string kind,CatalogResult catalog,ReferenceCatalog references,int? initialId=null)
+    private readonly int? initialSpellId;
+    internal ContentEditorWindow(string kind,CatalogResult catalog,ReferenceCatalog references,int? initialId=null,int? initialSpellId=null)
     {
-        this.kind=kind;this.catalog=catalog;this.references=references;
-        Title=kind=="Set"?"Set-bonus editor":"Weapon-proc editor";Width=1420;Height=930;MinWidth=1120;MinHeight=750;WindowStartupLocation=WindowStartupLocation.CenterOwner;Background=new SolidColorBrush(Color.FromRgb(35,36,40));
+        this.kind=kind;this.catalog=catalog;this.references=references;this.initialSpellId=initialSpellId;
+        Title=kind=="Set"?"Set-bonus editor":"Weapon-proc editor";Width=1380;Height=870;MinWidth=1120;MinHeight=700;WindowStartupLocation=WindowStartupLocation.CenterOwner;Background=new SolidColorBrush(Color.FromRgb(35,36,40));
         choices=kind=="Set"?catalog.Tooltips.Sets.Values.Where(s=>s.Members.Length>0).Select(s=>new ContentChoice(s.Id,s.Name)).OrderBy(c=>c.Name).ToList():catalog.Items.Where(i=>i.ClassId==2).Select(i=>new ContentChoice(i.Id,i.Name)).OrderBy(c=>c.Name).ToList();
         var layout=new DockPanel{Margin=new Thickness(20),Background=Background};Content=layout;
         heading.Text=Title;DockPanel.SetDock(heading,Dock.Top);layout.Children.Add(heading);
@@ -42,13 +45,17 @@ internal sealed class ContentEditorWindow : Window
         var body=new Grid();body.ColumnDefinitions.Add(new(){Width=new GridLength(245)});body.ColumnDefinitions.Add(new(){Width=new GridLength(16)});body.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});layout.Children.Add(body);
         var left=new DockPanel();body.Children.Add(left);var searchLabel=new TextBlock{Text=kind=="Set"?"Find set name or ID":"Find weapon name or ID",Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(searchLabel,Dock.Top);left.Children.Add(searchLabel);DockPanel.SetDock(search,Dock.Top);search.Margin=new Thickness(0,0,0,10);left.Children.Add(search);left.Children.Add(entities);
         entities.Background=new SolidColorBrush(Color.FromRgb(40,42,47));entities.Foreground=Brushes.LightGray;entities.BorderThickness=new Thickness(0);entities.ItemsSource=choices;
-        var right=new Grid();Grid.SetColumn(right,2);body.Children.Add(right);right.RowDefinitions.Add(new(){Height=GridLength.Auto});right.RowDefinitions.Add(new(){Height=new GridLength(180)});right.RowDefinitions.Add(new(){Height=GridLength.Auto});right.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});
+        var right=new Grid();Grid.SetColumn(right,2);body.Children.Add(right);right.RowDefinitions.Add(new(){Height=GridLength.Auto});right.RowDefinitions.Add(new(){Height=new GridLength(140)});right.RowDefinitions.Add(new(){Height=GridLength.Auto});right.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});
         var actions=new WrapPanel{Margin=new Thickness(0,0,0,10)};right.Children.Add(actions);
         add.Content=kind=="Set"?"Add bonus":"Add proc";
         foreach(var button in new[]{add,change,remove,save}){button.Margin=new Thickness(0,0,10,0);actions.Children.Add(button);}
+        change.Content="Change spell…";remove.Content="Remove";
+        if(kind=="Set"){var values=new Button{Content="Edit bonus values…",Margin=new Thickness(0,0,10,0)};values.Click+=async(_,_)=>await EditBonusValues();actions.Children.Insert(2,values);}
+        foreach(Button button in actions.Children)button.Padding=new Thickness(10,7,10,7);
         var reset=new Button{Content="Reload / discard draft"};reset.Click+=async(_,_)=>{if(choice is not null&&ConfirmDiscard())await SelectAsync(choice);};actions.Children.Add(reset);
         rows.ItemsSource=draft;var spellColumn=SpellPicker.Column("Spell","SpellId",2);spellColumn.Binding=new Binding("SpellId"){Converter=new SpellLabelConverter(references.Data)};rows.Columns.Add(spellColumn);rows.Columns.Add(SpellPicker.Column("ID","SpellId",.6));if(kind=="Set"){rows.Columns.Add(SpellPicker.Column("Pieces","Pieces",.6));rows.Columns.Add(SpellPicker.Column("Spec ID","Specialization",.6));rows.Columns.Add(SpellPicker.Column("Trait ID","Trait",.6));}else{rows.Columns.Add(SpellPicker.Column("Trigger","TriggerLabel"));rows.Columns.Add(SpellPicker.Column("Cooldown ms","Cooldown"));rows.Columns.Add(SpellPicker.Column("Slot","Slot",.5));}Grid.SetRow(rows,1);right.Children.Add(rows);
-        var form=new WrapPanel{Margin=new Thickness(0,12,0,10)};controls.Children.Add(form);Grid.SetRow(controls,2);right.Children.Add(controls);
+        settings.Header=kind=="Set"?"Selected bonus · pieces, specialization and trait":"Selected proc · trigger, cooldowns and restrictions";settings.Content=new ScrollViewer{Content=controls,MaxHeight=175,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};settings.Margin=new Thickness(0,10,0,12);Grid.SetRow(settings,2);right.Children.Add(settings);
+        var form=new WrapPanel{Margin=new Thickness(0,12,0,10)};controls.Children.Add(form);
         foreach(string name in kind=="Set"?new[]{"Pieces","Specialization","Trait"}:new[]{"Cooldown ms","Category cooldown ms","Charges","Slot","Category ID","Specialization","Condition ID"}){
             var field=new StackPanel{Width=name.Length>15?155:120,Margin=new Thickness(0,0,10,6)};field.Children.Add(new TextBlock{Text=name,FontSize=11,Margin=new Thickness(0,0,0,5)});var box=new TextBox();fields[name]=box;field.Children.Add(box);form.Children.Add(field);
         }
@@ -57,6 +64,7 @@ internal sealed class ContentEditorWindow : Window
         }
         var update=new Button{Content="Apply row settings to draft",Margin=new Thickness(0,16,0,0)};update.Click+=(_,_)=>UpdateRow();form.Children.Add(update);
         var explanation=new TextBlock{Text=kind=="Set"?"Select a row, change its pieces/spec/trait, then apply. Spec/trait 0 means unrestricted.":"Cooldowns use milliseconds; -1 uses the spell default. This configures item effects; global proc chance/PPM rules are shown in the spell picker and remain unchanged.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray,FontSize=11};controls.Children.Add(explanation);
+        if(kind=="Set"){var previewLine=new WrapPanel{Margin=new Thickness(0,8,0,8)};previewLine.Children.Add(new TextBlock{Text="Equipped pieces preview",VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,12,0)});previewLine.Children.Add(equippedPreview);equippedPreview.SelectionChanged+=(_,_)=>RenderPreviews();controls.Children.Add(previewLine);}
         var previews=new Grid();previews.ColumnDefinitions.Add(new());previews.ColumnDefinitions.Add(new(){Width=new GridLength(14)});previews.ColumnDefinitions.Add(new());Grid.SetRow(previews,3);right.Children.Add(previews);
         AddPreview(previews,currentPreview,"CURRENT · BEFORE SAVE",0);AddPreview(previews,draftPreview,"DRAFT · AFTER SAVE",2);
         rows.SelectionChanged+=(_,_)=>LoadRow();draft.CollectionChanged+=(_,_)=>{save.IsEnabled=session is not null&&!busy&&ContentEditing.Changed(session,draft);RenderPreviews();};
@@ -73,7 +81,7 @@ internal sealed class ContentEditorWindow : Window
     {
         int token=++request;choice=selected;Title=(kind=="Set"?"Set-bonus editor · ":"Weapon-proc editor · ")+selected.Label;session=null;SetEnabled(false);draft.Clear();feedback.Text="Loading current definitions…";
         heading.Text=Title;selecting=true;entities.SelectedItem=choices.FirstOrDefault(c=>c.Id==selected.Id);if(entities.SelectedItem is not null)entities.ScrollIntoView(entities.SelectedItem);selecting=false;
-        try{var loaded=await ContentEditing.LoadAsync(kind,selected.Id,kind=="Set"?catalog.Tooltips.Sets[selected.Id].Members.Length:17);if(token!=request)return;session=loaded;foreach(var row in loaded.Initial)draft.Add(row);SetEnabled(true);rows.SelectedIndex=draft.Count>0?0:-1;RenderPreviews();feedback.Text=$"{selected.Label} · Draft only. Review & save writes the changes. Reload the server after saving.";}
+        try{var loaded=await ContentEditing.LoadAsync(kind,selected.Id,kind=="Set"?catalog.Tooltips.Sets[selected.Id].Members.Length:17);if(token!=request)return;session=loaded;foreach(var row in loaded.Initial)draft.Add(row);SetEnabled(true);if(kind=="Set"){equippedPreview.ItemsSource=Enumerable.Range(0,loaded.MaxPieces+1).Select(n=>new FilterChoice(n,$"{n} / {loaded.MaxPieces} pieces")).ToList();equippedPreview.SelectedIndex=loaded.MaxPieces;}rows.SelectedItem=draft.FirstOrDefault(r=>r.SpellId==initialSpellId)??draft.FirstOrDefault();RenderPreviews();feedback.Text=$"{selected.Label} · Draft only. Review & save writes the changes. Reload the server after saving.";}
         catch(Exception ex){if(token==request)feedback.Text=ex.Message;}
     }
     private void LoadRow()
@@ -86,9 +94,10 @@ internal sealed class ContentEditorWindow : Window
     private void PickSpell(bool replace)
     {
         if(session is null||replace&&rows.SelectedItem is not ContentRow)return;
-        var picker=new SpellPicker(references,kind=="Proc"){Owner=this};if(picker.ShowDialog()!=true||picker.Selected is not {} spell)return;
+        var current=replace?rows.SelectedItem as ContentRow:null;
+        var picker=new SpellPicker(references,kind=="Proc",current?.SpellId,kind=="Proc"?current?.EffectId:null){Owner=this};if(picker.ShowDialog()!=true||picker.Selected is not {} spell)return;
         var existing=replace?(ContentRow)rows.SelectedItem:new ContentRow(0,0,spell.SpellId,Slot:Enumerable.Range(0,5).FirstOrDefault(n=>draft.All(r=>r.Slot!=n),-1));
-        var next=existing with{SpellId=spell.SpellId};
+        var next=existing with{SpellId=spell.SpellId,Bonus=existing.SpellId==spell.SpellId?existing.Bonus:null};
         if(kind=="Proc"&&spell.EffectId is int effect&&references.ItemEffects.TryGetValue(effect,out var e)){
             int N(string k)=>TooltipData.Number(e,k);next=next with{EffectId=effect,Trigger=N("TriggerType"),Cooldown=N("CoolDownMSec"),CategoryCooldown=N("CategoryCoolDownMSec"),Charges=N("Charges"),Category=N("SpellCategoryID"),Specialization=N("ChrSpecializationID"),Condition=N("PlayerConditionID")};
             session.EffectiveEffects.TryAdd(effect,new(e,StringComparer.OrdinalIgnoreCase));
@@ -103,37 +112,42 @@ internal sealed class ContentEditorWindow : Window
             var candidate=draft.Select(r=>ReferenceEquals(r,row)?next:r).ToArray();ContentEditing.Validate(session,candidate,references);draft[draft.IndexOf(row)]=next;rows.SelectedItem=next;feedback.Text="Row settings applied to the draft. Review & save to commit.";
         }catch(Exception ex){feedback.Text="Row not applied: "+ex.Message;}
     }
+    private async Task EditBonusValues()
+    {
+        if(busy||session is null||rows.SelectedItem is not ContentRow row)return;
+        busy=true;SetEnabled(false);entities.IsEnabled=search.IsEnabled=false;
+        try{feedback.Text="Loading the complete bonus spell definition…";var source=row.Bonus?.Source??await BonusSpells.LoadAsync(row.SpellId);var editor=new BonusValueWindow(source,references.Data,row.Bonus){Owner=this};if(editor.ShowDialog()==true&&editor.Result is {} result){var next=row with{Bonus=result};draft[draft.IndexOf(row)]=next;rows.SelectedItem=next;feedback.Text="Bonus values applied to this set's draft. Review & save to commit.";}}
+        catch(Exception ex){feedback.Text=ex.Message;}finally{busy=false;SetEnabled(session is not null);entities.IsEnabled=search.IsEnabled=true;}
+    }
     private async Task Save()
     {
-        if(session is null||choice is null||busy)return;
+        if(session is null||choice is null||busy)return;bool committed=false;
         try{ContentRow[] frozen=draft.ToArray();ContentEditing.Validate(session,frozen,references);if(!ContentEditing.Changed(session,frozen))return;
             var review=new ContentReviewWindow(kind,choice.Label,Summary(session.Initial),Summary(frozen)){Owner=this};if(review.ShowDialog()!=true)return;
-            busy=true;entities.IsEnabled=search.IsEnabled=false;SetEnabled(false);await ContentEditing.SaveAsync(session,frozen,choice.Name,references);Saved=true;await SelectAsync(choice);feedback.Text="Saved with before/after history. Reload the server and verify in game.";
-        }catch(Exception ex){feedback.Text="Could not save: "+ex.Message;}
+            busy=true;entities.IsEnabled=search.IsEnabled=false;SetEnabled(false);await ContentEditing.SaveAsync(session,frozen,choice.Name,references);Saved=committed=true;references=await ReferenceCatalog.LoadAsync();((DataGridTextColumn)rows.Columns[0]).Binding=new Binding("SpellId"){Converter=new SpellLabelConverter(references.Data)};await SelectAsync(choice);feedback.Text="Saved with before/after history. Reload the server and verify in game.";
+        }catch(Exception ex){feedback.Text=(committed?"An edit was saved, but refreshing failed: ":"Could not save: ")+ex.Message;}
         finally{busy=false;entities.IsEnabled=search.IsEnabled=true;SetEnabled(session is not null);}
     }
-    internal string Summary(IEnumerable<ContentRow> list)=>string.Join("\n\n",list.Select(r=>$"{references.Data.SpellName(r.SpellId)} · Spell {r.SpellId}\n"+(kind=="Set"?$"{r.Pieces} pieces · Spec {r.Specialization} · Trait {r.Trait}":$"{ReferenceCatalog.Trigger(r.Trigger)} · Cooldown {r.Cooldown} ms · Category cooldown {r.CategoryCooldown} ms · Charges {r.Charges} · Slot {r.Slot} · Category {r.Category} · Spec {r.Specialization} · Condition {r.Condition}")+"\n"+references.Data.SpellDescription(r.SpellId)));
+    internal string Summary(IEnumerable<ContentRow> list)=>string.Join("\n\n",list.Select(r=>$"{references.Data.SpellName(r.SpellId)} · Spell {r.SpellId}\n"+(kind=="Set"?$"{r.Pieces} pieces · Spec {r.Specialization} · Trait {r.Trait}":$"{ReferenceCatalog.Trigger(r.Trigger)} · Cooldown {r.Cooldown} ms · Category cooldown {r.CategoryCooldown} ms · Charges {r.Charges} · Slot {r.Slot} · Category {r.Category} · Spec {r.Specialization} · Condition {r.Condition}")+"\n"+(r.Bonus?.Description(references.Data)??references.Data.SpellDescription(r.SpellId))));
     private void AddPreview(Grid grid,StackPanel panel,string title,int column)
     {
         var dock=new DockPanel();Grid.SetColumn(dock,column);grid.Children.Add(dock);var heading=new TextBlock{Text=title,Foreground=Brushes.LightSkyBlue,Margin=new Thickness(0,0,0,8)};DockPanel.SetDock(heading,Dock.Top);dock.Children.Add(heading);
-        dock.Children.Add(new ScrollViewer{VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=new Border{Background=new SolidColorBrush(Color.FromRgb(16,17,27)),BorderBrush=Brushes.SlateGray,BorderThickness=new Thickness(1),Padding=new Thickness(14),Child=panel}});
+        dock.Children.Add(new ScrollViewer{VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,Content=new Border{Background=new SolidColorBrush(Color.FromRgb(16,17,27)),BorderBrush=Brushes.SlateGray,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(6),Padding=new Thickness(18),Child=panel}});
     }
     internal void RenderPreviews()
     {
         currentPreview.Children.Clear();draftPreview.Children.Clear();if(session is null||choice is null)return;
-        foreach(var (panel,list) in new[]{(currentPreview,(IEnumerable<ContentRow>)session.Initial),(draftPreview,(IEnumerable<ContentRow>)draft)}){
-            var data=PreviewData(catalog.Tooltips,references.Data);
-            CatalogItem? item;
-            if(kind=="Set"){
-                var set=catalog.Tooltips.Sets[choice.Id];data.Sets[choice.Id]=set with{Bonuses=list.Select(r=>new SetBonus(r.Pieces,r.SpellId,r.Specialization)).OrderBy(b=>b.Pieces).ToArray()};item=catalog.Items.FirstOrDefault(i=>set.Members.Contains(i.Id)&&i.Number("ItemSet")==choice.Id);
-                panel.Children.Add(new TextBlock{Text=$"{set.Name} (0/{set.Members.Length})",Foreground=Brushes.Gold,FontSize=16,Margin=new Thickness(0,0,0,8)});
-                foreach(int member in set.Members)panel.Children.Add(new TextBlock{Text=catalog.Items.FirstOrDefault(i=>i.Id==member)?.Name??$"Item {member}",Foreground=Brushes.Gray,Margin=new Thickness(12,0,0,3),TextWrapping=TextWrapping.Wrap});
-                foreach(var bonus in list.OrderBy(r=>r.Pieces))panel.Children.Add(new TextBlock{Text=$"({bonus.Pieces}) Set: {references.Data.SpellDescription(bonus.SpellId)}"+(bonus.Specialization>0?$" [Specialization {bonus.Specialization}]":"")+(bonus.Trait>0?$" [Trait subtree {bonus.Trait}]":""),Foreground=Brushes.Gray,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,0)});
-                continue;
-            }else{item=catalog.Items.FirstOrDefault(i=>i.Id==choice.Id);data.ItemSpells[choice.Id]=list.Select(r=>new ItemSpellInfo(r.SpellId,r.Trigger,r.Cooldown)).ToList();}
-            if(item is not null)foreach(var line in ItemTooltip.Build(item,data,catalog.Items.ToDictionary(i=>i.Id),60))panel.Children.Add(new TextBlock{Text=line.Text+(line.Right is null?"":"    "+line.Right),Foreground=(Brush)new BrushConverter().ConvertFromString(line.Color)!,TextWrapping=TextWrapping.Wrap,FontSize=line.Size,Margin=new Thickness(line.Indent,0,0,4)});
-            if(item is null||kind=="Set"&&list.Any(r=>r.Trait>0))panel.Children.Add(new TextBlock{Text=Summary(list),TextWrapping=TextWrapping.Wrap,Foreground=Brushes.LightGray});
+        var lookup=catalog.Items.ToDictionary(i=>i.Id);
+        List<TooltipLine> Lines(IEnumerable<ContentRow> list){
+            if(kind=="Proc"){var data=PreviewData(catalog.Tooltips,references.Data);data.ItemSpells[choice.Id]=list.OrderBy(r=>r.Slot).Select(r=>new ItemSpellInfo(r.SpellId,r.Trigger,r.Cooldown)).ToList();return lookup.TryGetValue(choice.Id,out var item)?ItemTooltip.Build(item,data,lookup,60):[];}
+            var set=catalog.Tooltips.Sets[choice.Id];int equipped=(equippedPreview.SelectedItem as FilterChoice)?.Id??set.Members.Length;
+            var members=set.Members.Where(lookup.ContainsKey).Select(id=>lookup[id]).ToList();var rarity=members.GroupBy(i=>i.Quality).OrderByDescending(g=>g.Count()).ThenByDescending(g=>g.Key).FirstOrDefault()?.First().NameBrush.ToString()??"#A335EE";
+            var lines=new List<TooltipLine>{new(set.Name,rarity,Size:18,Bold:true),new($"Equipment set · {equipped}/{set.Members.Length} pieces",ItemTooltip.Gold),new("")};
+            foreach(var (id,n) in set.Members.Select((id,n)=>(id,n)))lines.Add(new(lookup.GetValueOrDefault(id)?.Name??$"Item {id}",n<equipped?ItemTooltip.Green:ItemTooltip.Gray,Indent:10));
+            lines.Add(new(""));foreach(var bonus in list.OrderBy(r=>r.Pieces))lines.Add(new($"({bonus.Pieces}) Set: {bonus.Bonus?.Description(references.Data)??references.Data.SpellDescription(bonus.SpellId)}"+(bonus.Specialization>0?$" [Specialization {bonus.Specialization}]":"")+(bonus.Trait>0?$" [Trait subtree {bonus.Trait}]":""),equipped>=bonus.Pieces?ItemTooltip.Green:ItemTooltip.Gray));
+            lines.Add(new(""));lines.Add(new("Preview only · specialization, trait and skill requirements still apply.",ItemTooltip.Gray,Size:11));return lines;
         }
+        var original=Lines(session.Initial);var modified=Lines(draft);TooltipView.Fill(currentPreview,original);TooltipView.Fill(draftPreview,modified,original);
     }
     internal static TooltipData PreviewData(TooltipData source,TooltipData spells)
     {

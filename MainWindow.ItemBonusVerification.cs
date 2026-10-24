@@ -1,0 +1,57 @@
+using System.IO;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using MySqlConnector;
+namespace AnoWowItemEditor;
+
+public partial class MainWindow
+{
+    private async Task VerifyItemAndBonusEditing(CatalogResult catalog,ReferenceCatalog refs)
+    {
+        static void Assert(bool value,string message){if(!value)throw new InvalidOperationException(message);}
+        Assert(refs.Spells.Single(s=>s.SpellId==28844).Name=="Revenge","Revenge 28844 is named correctly");
+        await ShowReferencePage("Spell catalog");referenceFilters.School.SelectedIndex=3;referenceSearch.Text="28844";Assert(referenceView!.Cast<ReferenceEntry>().Any(e=>e.SpellId==28844&&e.Name=="Revenge"),"Exact ID lookup finds Revenge despite unrelated filters");referenceSearch.Clear();referenceFilters.Reset();
+        var picker=new SpellPicker(refs,false,28844);Assert(picker.Selected?.SpellId==28844,"Changing a bonus opens on its current spell");picker.Close();
+        Assert(refs.Procs.Count<refs.Spells.Count&&!refs.Procs.Any(p=>p.SpellId==28844&&!p.EffectId.HasValue),"Proc catalog no longer duplicates all passive spells");
+        var item=await ItemEditing.LoadAsync(22416);var draftFields=new Dictionary<string,string>(item.Current.Fields,StringComparer.OrdinalIgnoreCase){["Display"]=item.Current.Name+" verification",["RequiredLevel"]="20",["InventoryType"]="5",["SubclassID"]=item.Current.Number("SubclassID")==4?"3":"4",["StatModifierBonusStat2"]="7"};
+        int allocation=catalog.Tooltips.Calculations.AllocationFor(new(draftFields),2,40,60);draftFields["StatPercentEditor2"]=allocation.ToString();var draft=new CatalogItem(draftFields);
+        Assert(catalog.Tooltips.Calculations.Evaluate(draft,60).Stats[2]==40,"Requested stat amount converts to an exact stored allocation");ItemEditing.Validate(item,draft);
+        var source=await BonusSpells.LoadAsync(28844);var effect=source.Rows["spell_effect"].First(r=>TooltipData.Number(r,"SpellID")==28844&&TooltipData.Number(r,"EffectIndex")==0&&TooltipData.Number(r,"DifficultyID")==0);int effectId=TooltipData.Number(effect,"ID");var bonus=new BonusDraft(source,new(){[effectId]="150"});BonusSpells.Validate(bonus);Assert(bonus.Description(refs.Data).Contains("150"),"Isolated bonus draft resolves its changed value");
+        var set=await ContentEditing.LoadAsync("Set",523,catalog.Tooltips.Sets[523].Members.Length);var first=set.Initial.FirstOrDefault(r=>r.SpellId==28844)??set.Initial.First();var setDraft=set.Initial.Select(r=>r.Id==first.Id?r with{SpellId=28844,Bonus=bonus}:r).ToArray();ContentEditing.Validate(set,setDraft,refs);
+        using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);await ContentEditing.InitializeAsync(db);using(var gate=new MySqlCommand("SELECT GET_LOCK('anocore_studio_forge',8)",db))Assert(Convert.ToInt32(await gate.ExecuteScalarAsync())==1,"Item/bonus verification lock");
+        var summary=new List<object>();
+        try{
+            using(var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)){
+                try{
+                    string id=await ItemEditing.SaveCoreAsync(db,tx,item,draft);var op=await ContentEditing.ReadAsync(db,tx,id);var saved=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;Assert(saved.Tables["item_sparse"].Any(r=>r["Display"]==draft.Name),"Edited item payload saved");Assert(saved.Tables["item"].Any(r=>r["SubclassID"]==draft.Text("SubclassID")),"Identity edits stay synchronized with item fields");
+                    bool stale=false;try{await ItemEditing.SaveCoreAsync(db,tx,item,draft);}catch(InvalidOperationException ex) when(ex.Message.StartsWith("Conflict:")){stale=true;}Assert(stale,"Stale item save blocked");
+                    await ContentEditing.ToggleCoreAsync(db,tx,op);var reverted=await ContentEditing.ReadAsync(db,tx,id);Assert(!reverted.Active,"Item operation reverted");var old=await HistoryActions.CaptureAsync(db,tx,item.Current.Id);foreach(string table in new[]{"item_sparse","item"})Assert(JsonSerializer.Serialize(item.Expected.Tables[table])==JsonSerializer.Serialize(old.Tables[table]),"Original SQL item fields restored: "+table);
+                    await ContentEditing.ToggleCoreAsync(db,tx,reverted);Assert((await ContentEditing.ReadAsync(db,tx,id)).Active,"Item operation reapplied");
+                    var reopened=await ItemEditing.LoadAsync(item.Current.Id,db,tx);Assert(reopened.Current.Name==draft.Name,"Reopening edited item loads its latest saved values");Assert(reopened.Native?.Name==item.Native?.Name,"Original stays stable after editing");
+                    var secondFields=new Dictionary<string,string>(reopened.Current.Fields,StringComparer.OrdinalIgnoreCase){["Display"]=draft.Name+" second edit"};var second=new CatalogItem(secondFields);string secondId=await ItemEditing.SaveCoreAsync(db,tx,reopened,second);var secondOp=await ContentEditing.ReadAsync(db,tx,secondId);Assert(JsonSerializer.Deserialize<ItemSnapshot>(secondOp.After)!.Tables["item_sparse"].Any(r=>r["Display"]==second.Name),"Previously edited item can be saved again");await ContentEditing.ToggleCoreAsync(db,tx,secondOp);var secondReverted=await ContentEditing.ReadAsync(db,tx,secondId);Assert(JsonSerializer.Deserialize<ItemSnapshot>(secondReverted.Expected)!.Tables["item_sparse"].Any(r=>r["Display"]==draft.Name),"Reverting second edit restores first edit");await ContentEditing.ToggleCoreAsync(db,tx,secondReverted);
+                    summary.Add(new{kind="Item",id=item.Current.Id,checks="Exact stat conversion; item and identity save; stale conflict; full SQL revert/reapply; reopen and second edit, revert/reapply; stable original; rolled back"});
+                }finally{await tx.RollbackAsync();}
+            }
+            Assert(HistoryActions.Canonical(item.Expected)==HistoryActions.Canonical(await HistoryActions.CaptureAsync(db,null,item.Current.Id)),"Item tests leave game data unchanged");
+            using(var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)){
+                try{
+                    string id=await ContentEditing.SaveCoreAsync(db,tx,set,setDraft,"Dreadnaught private value verification");var op=await ContentEditing.ReadAsync(db,tx,id);var scope=JsonSerializer.Deserialize<ContentScope>(op.Scope)!;var snapshot=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;
+                    Assert(scope.Bonus is not null&&scope.Bonus.OwnedSpells.All(n=>n!=28844),"Bonus uses new private spell IDs");int clone=snapshot.ContentRows!.Single(r=>r.Id==first.Id).SpellId;Assert(clone!=28844,"Only the selected bonus is repointed");
+                    var sparse=await HotfixReader.LoadAsync(db,"spell_effect",TooltipData.Hash("SpellEffect"),tx);Assert(sparse.ActiveRows.Values.Any(r=>r["SpellID"]==clone.ToString()&&r["EffectBasePoints"]=="150"),"Private bonus effect has the requested value");
+                    var sourceAfter=await BonusSpells.CaptureAsync(db,tx,source.Scope);Assert(HistoryActions.Canonical(source.Expected)==HistoryActions.Canonical(sourceAfter),"Original Revenge spell and dependencies stay unchanged");
+                    var descriptions=new Dictionary<int,Dictionary<string,string>>();await SpellBlobs.OverlayAsync(db,descriptions,tx);Assert(descriptions.ContainsKey(clone)&&descriptions[clone]["Description"]==source.Texts[28844]["Description"],"Private client tooltip text is persisted");
+                    await ContentEditing.ToggleCoreAsync(db,tx,op);var inactive=await ContentEditing.ReadAsync(db,tx,id);Assert(!inactive.Active,"Private bonus operation reverted");var afterRevert=await HotfixReader.LoadAsync(db,"spell_name",TooltipData.Hash("SpellName"),tx);Assert(!afterRevert.ActiveRows.ContainsKey(clone),"Unused private spell disabled on revert");
+                    await ContentEditing.ToggleCoreAsync(db,tx,inactive);var reapplied=await ContentEditing.ReadAsync(db,tx,id);Assert(reapplied.Active&&reapplied.After==op.After,"Private bonus reapplied with immutable modified snapshot");var afterReapply=await HotfixReader.LoadAsync(db,"spell_effect",TooltipData.Hash("SpellEffect"),tx);Assert(afterReapply.ActiveRows.Values.Any(r=>r["SpellID"]==clone.ToString()&&r["EffectBasePoints"]=="150"),"Reapply restores the same private spell ID and amount");summary.Add(new{kind="Set values",spell=28844,clone,checks="75 to 150; cloned dependencies and client text; source unchanged; revert/reapply; rolled back"});
+                }finally{await tx.RollbackAsync();}
+            }
+            Assert(HistoryActions.Canonical(source.Expected)==HistoryActions.Canonical(await BonusSpells.CaptureAsync(db,null,source.Scope)),"Bonus tests leave source spells unchanged");
+        }finally{using var release=new MySqlCommand("SELECT RELEASE_LOCK('anocore_studio_forge')",db);await release.ExecuteScalarAsync();}
+        var window=new ItemEditorWindow(catalog){Owner=this};window.Show();await window.SelectAsync(22416);window.SetDraftValue("ClassID","2");window.SetDraftValue("SubclassID","7");Assert(window.SubclassLabel.Contains("Sword",StringComparison.OrdinalIgnoreCase),"Weapon subclass 7 displays its real sword name");window.ResetDraft();window.SetDraftValue("Display",draft.Name);window.SetDraftValue("StatModifierBonusStat2","7");window.SetDraftValue("StatPercentEditor2",allocation.ToString());string untouched=window.Draft.Name;window.ShowOriginal(true);Assert(window.ShowingOriginal&&window.ComparisonItem?.Name==item.Native?.Name&&window.Draft.Name==untouched,"Show original switches comparison without changing draft");window.ShowOriginal(false);Assert(window.ComparisonItem?.Name==window.Session!.Current.Name,"Current comparison can be restored");await RenderEditorWindow(window,"item-editor-preview");window.ResetDraft();window.Close();
+        var setWindow=new ContentEditorWindow("Set",catalog,refs){Owner=this};setWindow.Show();await setWindow.SelectAsync(new(523,catalog.Tooltips.Sets[523].Name));setWindow.Draft.Clear();foreach(var row in setDraft)setWindow.Draft.Add(row);await RenderEditorWindow(setWindow,"set-values-preview");setWindow.Draft.Clear();foreach(var row in setWindow.Session!.Initial)setWindow.Draft.Add(row);setWindow.Close();
+        await File.WriteAllTextAsync("artifacts/item-bonus-verification.json",JsonSerializer.Serialize(summary,new JsonSerializerOptions{WriteIndented=true}));
+    }
+    private async Task RenderEditorWindow(Window window,string name){await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);window.UpdateLayout();var content=(FrameworkElement)window.Content;var bitmap=new RenderTargetBitmap((int)content.ActualWidth,(int)content.ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(content);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using var file=File.Create($"artifacts/{name}.png");encoder.Save(file);}
+}

@@ -13,12 +13,13 @@
     <RadioButton Content="Proc catalog" GroupName="Navigation" Checked="Navigate"/>
     <Border Height="1" Background="#36383F" Margin="26,14,26,14"/>
     <TextBlock Text="EDITORS" Foreground="#787F8C" FontSize="10" Margin="26,0,0,8"/>
+    <Button Content="Items" Click="OpenItemEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Set bonuses" Click="OpenSetEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Weapon procs" Click="OpenWeaponEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Border Height="1" Background="#36383F" Margin="26,20,26,20"/>
     <TextBlock Text="HISTORY" Foreground="#787F8C" FontSize="10" Margin="26,0,0,12"/>
     <RadioButton x:Name="HistoryNav" Content="Change history" GroupName="Navigation" Checked="Navigate"/>
-    <Button Content="Set &amp; proc changes" Click="OpenContentHistory" Margin="10,3"/>
+    <Button Content="Item, set &amp; proc edits" Click="OpenContentHistory" Margin="10,3"/>
    </StackPanel>
   </DockPanel></Border>
   <Grid Grid.Column="1" Margin="28,25,28,18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -38,7 +39,7 @@
     </StackPanel></Border>
     <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="320"/><ColumnDefinition Width="16"/><ColumnDefinition Width="390" MinWidth="290"/></Grid.ColumnDefinitions>
      <Border Background="#282A2F" CornerRadius="7" ClipToBounds="True"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="ResultCount" Text="Loading items…" Foreground="#9299A5" Margin="16,13"/>
-      <DataGrid x:Name="ItemsGrid" Grid.Row="1" SelectionChanged="SelectItem"><DataGrid.Columns>
+      <DataGrid x:Name="ItemsGrid" Grid.Row="1" SelectionChanged="SelectItem" MouseDoubleClick="EditItemDoubleClick" ToolTip="Double-click an item to edit its definition"><DataGrid.Columns>
        <DataGridTemplateColumn Header="Item name" SortMemberPath="Name" Width="*" MinWidth="175"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Name}" Foreground="{Binding NameBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
        <DataGridTextColumn x:Name="LocationColumn" Header="Location" Binding="{Binding Location}" Width="150" Visibility="Collapsed"><DataGridTextColumn.ElementStyle><Style TargetType="TextBlock"><Setter Property="Foreground" Value="#A7ADB8"/></Style></DataGridTextColumn.ElementStyle></DataGridTextColumn>
        <DataGridTextColumn x:Name="CountColumn" Header="Qty" Binding="{Binding Count}" Width="48" Visibility="Collapsed"/>
