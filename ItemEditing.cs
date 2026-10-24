@@ -8,6 +8,7 @@ internal sealed record ItemColumn(string Name,string Type,bool Nullable,string? 
 internal sealed record ItemEditSession(CatalogItem Current,CatalogItem? Native,Dictionary<string,string> Identity,Dictionary<string,string> NativeIdentity,ItemSnapshot Expected,string Fingerprint,List<ItemColumn> Columns,int Build,int IdentityBuild)
 {
     internal string IdentityFingerprint {get;init;}="";
+    internal bool ManagedDrops {get;init;}
 }
 internal static class ItemEditing
 {
@@ -23,7 +24,7 @@ internal static class ItemEditing
         });
         using var ownedDb=connection is null?await DatabaseConnection.OpenAsync(CatalogRepository.Database):null;var db=connection??ownedDb!;
         using var ownedTx=transaction is null?await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead):null;var tx=transaction??ownedTx!;
-        var snapshot=await HistoryActions.CaptureAsync(db,tx,id);
+        var snapshot=await HistoryActions.CaptureAsync(db,tx,id);bool managedDrops=false;if((await WorldDrops.Query(db,tx,"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='anocore_studio_backup' AND TABLE_NAME='item_editor_world_drops'")).Count>0){managedDrops=(await WorldDrops.Query(db,tx,$"SELECT ItemId FROM {WorldDrops.Metadata} WHERE ItemId={id}")).Count>0;if(managedDrops)foreach(var p in await WorldDrops.Capture(db,tx,new([id])))snapshot.Tables[p.Key]=p.Value;}
         var sparse=await HotfixReader.LoadAsync(db,"item_sparse",TooltipData.Hash("ItemSparse"),tx);var identity=await HotfixReader.LoadAsync(db,"item",TooltipData.Hash("Item"),tx);
         if(sparse.Registrations.GetValueOrDefault(id)?.Status==2)throw new InvalidOperationException("This item was removed after the catalog loaded. Refresh the catalog.");
         var payload=sparse.ActiveRows.GetValueOrDefault(id);var fields=HotfixReader.Merge(native.Sparse?.Fields,payload??new Dictionary<string,string>());
@@ -34,7 +35,7 @@ internal static class ItemEditing
         if(ownedTx is not null)await tx.CommitAsync();if(fingerprint!=ContentEditing.Fingerprint()||identityFingerprint!=IdentityFingerprint())throw new InvalidOperationException("Client definitions changed while loading; reopen this item.");
         int build=payload is not null?int.Parse(payload["VerifiedBuild"]):snapshot.Tables["item_sparse"].OrderBy(r=>r["VerifiedBuild"]=="0"?0:1).FirstOrDefault() is {} retained?int.Parse(retained["VerifiedBuild"]!):0;
         int identityBuild=identity.ActiveRows.TryGetValue(id,out var active)?int.Parse(active["VerifiedBuild"]):0;
-        return new(new(fields,payload is not null),native.Sparse?.Fields.ContainsKey("Display")==true?native.Sparse:null,item,native.Identity,snapshot,fingerprint,columns,build,identityBuild){IdentityFingerprint=identityFingerprint};
+        return new(new(fields,payload is not null),native.Sparse?.Fields.ContainsKey("Display")==true?native.Sparse:null,item,native.Identity,snapshot,fingerprint,columns,build,identityBuild){IdentityFingerprint=identityFingerprint,ManagedDrops=managedDrops};
     }
     internal static List<FieldComparison> Changes(ItemEditSession session,CatalogItem draft)=>OverrideEntry.Compare(session.Current,draft).Where(f=>f.Changed).ToList();
     internal static void Validate(ItemEditSession session,CatalogItem draft)
@@ -59,7 +60,7 @@ internal static class ItemEditing
     internal static async Task<string> SaveCoreAsync(MySqlConnection db,MySqlTransaction tx,ItemEditSession session,CatalogItem draft)
     {
         Validate(session,draft);if(Changes(session,draft).Count==0)throw new InvalidOperationException("No item fields have changed.");
-        int id=session.Current.Id;var scope=new ContentScope("Item",id,[id],[],session.Native is null?[]:[id],session.NativeIdentity.Count==0?[]:[id],ItemFingerprint:session.IdentityFingerprint);
+        int id=session.Current.Id;var scope=new ContentScope("Item",id,[id],[],session.Native is null?[]:[id],session.NativeIdentity.Count==0?[]:[id],ItemFingerprint:session.IdentityFingerprint,Drops:session.ManagedDrops?new([id]):null);
         var before=await ContentEditing.CaptureAsync(db,tx,scope,true);
         if(ContentEditing.Fingerprint()!=session.Fingerprint||IdentityFingerprint()!=session.IdentityFingerprint||HistoryActions.Canonical(before)!=HistoryActions.Canonical(session.Expected))throw new InvalidOperationException("Conflict: this item changed after loading. Reload the item before saving.");
         var payload=new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase);
@@ -81,6 +82,7 @@ internal static class ItemEditing
             }
             await ContentEditing.Upsert(db,tx,"item",identity);await ContentEditing.Register(db,tx,"item",id);
         }
+        if(session.ManagedDrops&&new[]{"ItemLevel","RequiredLevel"}.Any(k=>!OverrideEntry.Equivalent(session.Current.Text(k),draft.Text(k)))){decimal chance=decimal.Parse(session.Expected.Tables["world_drop_policy"].Single()["Chance"]!,CultureInfo.InvariantCulture);var world=await WorldDropCatalog.LoadAsync(db,tx);await WorldDrops.Apply(db,tx,id,world.Plan(draft,chance),draft.Name);}
         before=before with{OriginalItem=new(session.Current.Fields,StringComparer.OrdinalIgnoreCase)};
         var after=(await ContentEditing.CaptureAsync(db,tx,scope,true)) with{OriginalItem=new(draft.Fields,StringComparer.OrdinalIgnoreCase)};string op=Guid.NewGuid().ToString();
         using(var cmd=new MySqlCommand($"INSERT INTO {ContentEditing.Operations}(OperationId,Kind,EntityId,Name,IsActive,IsHidden,Version,BeforeJson,AfterJson,ExpectedJson,ScopeJson,Fingerprint,RecordedUtc) VALUES(@op,'Item',@id,@name,1,0,1,@before,@after,@after,@scope,@fingerprint,UTC_TIMESTAMP(6))",db,tx)){

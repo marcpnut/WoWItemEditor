@@ -16,8 +16,12 @@ public partial class MainWindow
             await HistoryActions.InitializeAsync(db);
             using(var gate=new MySqlCommand("SELECT GET_LOCK('anocore_studio_forge',8)",db))Assert(Convert.ToInt32(await gate.ExecuteScalarAsync())==1,"Verification lock unavailable");
             try{
-                var entry=catalog.History.Entries.First(e=>e.Active&&e.OriginalItem?.RequiredLevel==60&&e.ModifiedItem.RequiredLevel==1);
-                var initial=await HistoryActions.CaptureAsync(db,null,entry.Id);
+                OverrideEntry? fixture=null;ItemSnapshot? captured=null;
+                foreach(var candidate in catalog.History.Entries.Where(e=>e.Active&&!e.Managed&&e.ContentOperationId is null&&e.OriginalItem?.RequiredLevel==60&&e.ModifiedItem.RequiredLevel==1)){
+                    var snapshot=await HistoryActions.CaptureAsync(db,null,candidate.Id);var payload=snapshot.Tables["item_sparse"].SingleOrDefault(r=>r["VerifiedBuild"]==candidate.Build.ToString());
+                    if(snapshot.Tables["item_sparse"].Count==1&&payload is not null&&payload.All(p=>candidate.ModifiedItem.Fields.TryGetValue(p.Key,out var value)&&OverrideEntry.Equivalent(p.Value,value))){fixture=candidate;captured=snapshot;break;}
+                }
+                var entry=fixture??throw new InvalidOperationException("No stable legacy override fixture is available for rolled-back verification.");var initial=captured!;
                 var events=new List<string>();
                 using(var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)){
                     try{
@@ -62,6 +66,7 @@ public partial class MainWindow
         await VerifyContentEditors(catalog,references);
         await VerifyItemAndBonusEditing(catalog,references);
         await VerifyDesigner(catalog,references);
+        await VerifySetCreation(catalog,references);
         await File.WriteAllTextAsync("artifacts/action-reference-verification.json",JsonSerializer.Serialize(new{spells=references.Spells.Count,itemEffects=references.Procs.Count(p=>p.EffectId.HasValue),candidates=references.Procs.Count(p=>!p.EffectId.HasValue),checks="Revert/reapply exact payload roundtrip, immutable archive, audit mirror, stale conflict rejection, shared dependencies unchanged, all test writes rolled back; history filters; complete read-only spell/proc catalogs and search"},new JsonSerializerOptions{WriteIndented=true}));
     }
     private async Task RenderFeature(string name)

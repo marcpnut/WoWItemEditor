@@ -4,6 +4,10 @@ namespace AnoWowItemEditor;
 public partial class MainWindow
 {
     private bool editorLoading;
+    private async void OpenSetCreator(object sender,RoutedEventArgs e)
+    {
+        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var creator=new SetCreatorWindow(loadedCatalog,await EditorReferences()){Owner=this};creator.ShowDialog();if(creator.Result is {} result){references=null;referenceLoad=null;await LoadCatalog();var designer=new DesignerWindow(loadedCatalog!,result.Items[0],2){Owner=this};designer.SelectCreatedSet(result.SetId);designer.ShowDialog();if(designer.Saved)await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open set creator: "+ex.Message;}finally{editorLoading=false;}
+    }
     private async void OpenDesigner(object sender,RoutedEventArgs e)
     {
         if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? id=(ItemsGrid.SelectedItem as CatalogItem)?.Id??(ItemsGrid.SelectedItem as CharacterItemRow)?.Item.Id;var window=new DesignerWindow(loadedCatalog,id){Owner=this};window.ShowDialog();if(window.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open designer: "+ex.Message;}finally{editorLoading=false;}
