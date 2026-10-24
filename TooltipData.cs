@@ -58,27 +58,17 @@ public sealed class TooltipData
     }
     internal static async Task Overlay(MySqlConnection db,string table,string db2,Dictionary<int,Dictionary<string,string>> rows)
     {
-        // Only these internally named tables are passed here; no user text enters identifiers.
-        using var cmd=new MySqlCommand($"SELECT s.* FROM `{table}` s WHERE s.VerifiedBuild IN (70450,0) AND EXISTS (SELECT 1 FROM hotfix_data h WHERE h.TableHash=@hash AND h.RecordId=s.ID AND h.VerifiedBuild=s.VerifiedBuild AND h.Status=1) ORDER BY s.ID,CASE WHEN s.VerifiedBuild=70450 THEN 0 ELSE 1 END",db);
-        cmd.Parameters.AddWithValue("@hash",Hash(db2));
-        var applied=new HashSet<int>();
-        using(var reader=await cmd.ExecuteReaderAsync())
-        while(await reader.ReadAsync())
-        {
-            int id=Convert.ToInt32(reader["ID"]); if(!applied.Add(id))continue;
-            var fields=rows.TryGetValue(id,out var old)?new Dictionary<string,string>(old,StringComparer.OrdinalIgnoreCase):new(StringComparer.OrdinalIgnoreCase);
-            for(int i=0;i<reader.FieldCount;i++) fields[reader.GetName(i)]=reader.IsDBNull(i)?"":Convert.ToString(reader.GetValue(i),CultureInfo.InvariantCulture)??"";
-            // This installed DB2 exposes float base points as EffectBasePointsF; SQL calls them EffectBasePoints.
-            if(table=="spell_effect") fields["EffectBasePointsF"]=fields["EffectBasePoints"];
+        var data=await HotfixReader.LoadAsync(db,table,Hash(db2));
+        foreach(var (id,row) in data.ActiveRows) {
+            var fields=HotfixReader.Merge(rows.GetValueOrDefault(id),row);
+            if(table=="spell_effect")fields["EffectBasePointsF"]=fields["EffectBasePoints"];
             rows[id]=fields;
         }
-        using var deleted=new MySqlCommand("SELECT RecordId FROM hotfix_data WHERE TableHash=@hash AND Status=2 AND VerifiedBuild IN (0,70450)",db);
-        deleted.Parameters.AddWithValue("@hash",Hash(db2));
-        using var removed=await deleted.ExecuteReaderAsync();
-        while(await removed.ReadAsync()) if(!applied.Contains(Convert.ToInt32(removed[0])))rows.Remove(Convert.ToInt32(removed[0]));
+        foreach(var registration in data.Registrations.Values.Where(r=>r.Status==2))rows.Remove(registration.RecordId);
     }
-    public static async Task<TooltipData> LoadAsync(MySqlConnection db,List<CatalogItem> catalog)
+    public static async Task<TooltipData> LoadAsync(MySqlConnection db,List<CatalogItem> catalog,bool includeOverrides=true)
     {
+        async Task Apply(string table,string db2,Dictionary<int,Dictionary<string,string>> rows){if(includeOverrides)await Overlay(db,table,db2,rows);}
         var result=new TooltipData();
         var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider());
         var baseline=await Task.Run(()=>new {
@@ -87,11 +77,11 @@ public sealed class TooltipData
             Subclasses=LoadTable(reader,"ItemSubClass"),Classes=LoadTable(reader,"ChrClasses"),
             Skills=LoadTable(reader,"SkillLine"),Factions=LoadTable(reader,"Faction"),Enchantments=LoadTable(reader,"SpellItemEnchantment")
         });
-        await Overlay(db,"item_set","ItemSet",baseline.Sets);
-        await Overlay(db,"item_set_spell","ItemSetSpell",baseline.Bonuses);
-        await Overlay(db,"item_effect","ItemEffect",baseline.ItemEffects);
-        await Overlay(db,"item_x_item_effect","ItemXItemEffect",baseline.Links);
-        await Overlay(db,"spell_item_enchantment","SpellItemEnchantment",baseline.Enchantments);
+        await Apply("item_set","ItemSet",baseline.Sets);
+        await Apply("item_set_spell","ItemSetSpell",baseline.Bonuses);
+        await Apply("item_effect","ItemEffect",baseline.ItemEffects);
+        await Apply("item_x_item_effect","ItemXItemEffect",baseline.Links);
+        await Apply("spell_item_enchantment","SpellItemEnchantment",baseline.Enchantments);
         foreach(var row in baseline.Subclasses.Values) result.Subclasses[(Number(row,"ClassID"),Number(row,"SubClassID"))]=Read(row,"DisplayName");
         foreach(var row in baseline.Classes.Values) result.Classes[Number(row,"ID")]=Read(row,"Name");
         foreach(var row in baseline.Skills.Values) result.Skills[Number(row,"ID")]=Read(row,"DisplayName");
@@ -123,18 +113,18 @@ public sealed class TooltipData
             foreach(int id in wanted) if(spells.TryGetValue(id,out var spell)) result.Spells[id]=spell;
         });
         var names=await Task.Run(()=>LoadTable(reader,"SpellName",r=>wanted.Contains(Number(r,"ID"))));
-        await Overlay(db,"spell_name","SpellName",names);
+        await Apply("spell_name","SpellName",names);
         foreach(var (id,name) in names) { if(!result.Spells.TryGetValue(id,out var spell)) result.Spells[id]=spell=[]; spell["Name"]=Read(name,"Name"); }
         var effects=await Task.Run(()=>LoadTable(reader,"SpellEffect",r=>wanted.Contains(Number(r,"SpellID"))));
-        await Overlay(db,"spell_effect","SpellEffect",effects);
+        await Apply("spell_effect","SpellEffect",effects);
         foreach(var row in effects.Values.Where(r=>Number(r,"DifficultyID")==0)) result.Effects[(Number(row,"SpellID"),Number(row,"EffectIndex"))]=row;
         var durations=await Task.Run(()=>LoadTable(reader,"SpellDuration"));
         var misc=await Task.Run(()=>LoadTable(reader,"SpellMisc",r=>wanted.Contains(Number(r,"SpellID"))&&Number(r,"DifficultyID")==0));
-        await Overlay(db,"spell_duration","SpellDuration",durations);
-        await Overlay(db,"spell_misc","SpellMisc",misc);
+        await Apply("spell_duration","SpellDuration",durations);
+        await Apply("spell_misc","SpellMisc",misc);
         foreach(var (id,row) in durations)result.Durations[id]=row;
         foreach(var row in misc.Values.Where(r=>Number(r,"DifficultyID")==0))result.Misc[Number(row,"SpellID")]=row;
-        result.Calculations=await ItemCalculations.LoadAsync(db,reader);
+        result.Calculations=await ItemCalculations.LoadAsync(db,reader,includeOverrides);
         return result;
     }
     public string SpellDescription(int id)

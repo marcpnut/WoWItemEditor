@@ -10,14 +10,14 @@ public sealed class ItemCalculations
     private readonly Dictionary<int,float> socketCost=[];
     // Formula reference: TrinityCore Item.cpp / ItemTemplate.cpp / ItemEnchantmentMgr.cpp.
     // Actual coefficients come exclusively from this server's DB2/GT and active hotfix rows.
-    internal static async Task<ItemCalculations> LoadAsync(MySqlConnection db,DBCD.DBCD reader)
+    internal static async Task<ItemCalculations> LoadAsync(MySqlConnection db,DBCD.DBCD reader,bool includeOverrides=true)
     {
         var result=new ItemCalculations();
         string[] names=["RandPropPoints","ItemArmorTotal","ItemArmorQuality","ItemArmorShield","ArmorLocation","ItemDamageOneHand","ItemDamageOneHandCaster","ItemDamageTwoHand","ItemDamageTwoHandCaster","Curve","CurvePoint","ContentTuning"];
         foreach(string name in names) {
             var rows=await Task.Run(()=>TooltipData.LoadTable(reader,name));
             string sql=System.Text.RegularExpressions.Regex.Replace(name,"(?<=[a-z0-9])([A-Z])","_$1").ToLowerInvariant();
-            await TooltipData.Overlay(db,sql,name,rows);result.tables[name]=rows;
+            if(includeOverrides)await TooltipData.Overlay(db,sql,name,rows);result.tables[name]=rows;
         }
         var path=Path.Combine(Path.GetDirectoryName(CatalogRepository.Db2Folder)!,"..","gt","ItemSocketCostPerLevel.txt");
         foreach(string line in File.ReadLines(path).Skip(1)) {

@@ -5,7 +5,7 @@ using DBCD.Providers;
 using MySqlConnector;
 namespace AnoWowItemEditor;
 
-public sealed record CatalogResult(List<CatalogItem> Items, int Overrides, string Server, TooltipData Tooltips);
+public sealed record CatalogResult(List<CatalogItem> Items,int Overrides,string Server,TooltipData Tooltips,Dictionary<int,CatalogItem> Originals,TooltipData OriginalTooltips,HotfixHistory History);
 public sealed class CatalogRepository
 {
     internal const string Db2Folder = @"C:\AnoCore\AnoCore-Server\data\dbc\enUS";
@@ -22,34 +22,18 @@ public sealed class CatalogRepository
                 throw new InvalidOperationException("Installed ItemSparse DB2 does not match the supported server build.");
         }
         var items = await Task.Run(LoadBaseline);
-        // Match the server convention used by the previous editor: build 70450, then generic build 0.
-        const string sql = "SELECT s.* FROM item_sparse s WHERE s.VerifiedBuild IN (70450,0) AND EXISTS (SELECT 1 FROM hotfix_data h WHERE h.TableHash=@hash AND h.RecordId=s.ID AND h.VerifiedBuild=s.VerifiedBuild AND h.Status=1) ORDER BY s.ID, CASE WHEN s.VerifiedBuild=70450 THEN 0 ELSE 1 END";
-        var applied = new HashSet<int>();
-        using(var cmd = new MySqlCommand(sql,db))
-        {
-            cmd.Parameters.AddWithValue("@hash",SparseHash);
-            using var rows=await cmd.ExecuteReaderAsync();
-            while(await rows.ReadAsync())
-            {
-                int id=Convert.ToInt32(rows["ID"]); if(!applied.Add(id)) continue;
-                var fields=items.TryGetValue(id,out var original) ? new Dictionary<string,string>(original.Fields,StringComparer.OrdinalIgnoreCase) : new(StringComparer.OrdinalIgnoreCase);
-                for(int i=0;i<rows.FieldCount;i++) fields[rows.GetName(i)]=Value(rows.GetValue(i));
-                items[id]=new(fields,true);
-            }
-        }
-        // Custom item identity provides type information for IDs absent from the original DB2.
-        using(var cmd=new MySqlCommand("SELECT s.ID,s.ClassID,s.SubclassID FROM item s WHERE s.VerifiedBuild IN (70450,0) AND EXISTS (SELECT 1 FROM hotfix_data h WHERE h.RecordId=s.ID AND h.TableHash=@hash AND h.VerifiedBuild=s.VerifiedBuild AND h.Status=1) ORDER BY CASE WHEN s.VerifiedBuild=70450 THEN 0 ELSE 1 END",db))
-        {
-        cmd.Parameters.AddWithValue("@hash",TooltipData.Hash("Item"));
-        using(var rows=await cmd.ExecuteReaderAsync())
-        {
-            var seen=new HashSet<int>();
-            while(await rows.ReadAsync()) { int id=Convert.ToInt32(rows["ID"]); if(!seen.Add(id)||!items.TryGetValue(id,out var item)) continue; item.Fields["ClassID"]=Value(rows["ClassID"]); item.Fields["SubclassID"]=Value(rows["SubclassID"]); }
-        }
-        }
+        var originals=items.ToDictionary(p=>p.Key,p=>new CatalogItem(new(p.Value.Fields,StringComparer.OrdinalIgnoreCase)));
+        var sparse=await HotfixReader.LoadAsync(db,"item_sparse",SparseHash);
+        var active=sparse.ActiveRows;
+        foreach(var (id,row) in active)items[id]=new(HotfixReader.Merge(items.GetValueOrDefault(id)?.Fields,row),true);
+        foreach(var registration in sparse.Registrations.Values.Where(r=>r.Status==2))items.Remove(registration.RecordId);
+        var identity=await HotfixReader.LoadAsync(db,"item",TooltipData.Hash("Item"));
+        foreach(var (id,row) in identity.ActiveRows)if(items.TryGetValue(id,out var item))foreach(string col in new[]{"ClassID","SubclassID"})item.Fields[col]=row[col];
         var catalog=items.Values.Where(i=>i.Text("Display").Length>0 || i.Overridden).OrderBy(i=>i.Name,StringComparer.OrdinalIgnoreCase).ToList();
+        var originalTooltips=await TooltipData.LoadAsync(db,originals.Values.Where(i=>i.Text("Display").Length>0).ToList(),false);
         var tooltips=await TooltipData.LoadAsync(db,catalog);
-        return new(catalog,applied.Count,db.DataSource,tooltips);
+        var history=await HotfixHistory.LoadAsync(db,sparse,originals,items);
+        return new(catalog,active.Count,db.DataSource,tooltips,originals,originalTooltips,history);
     }
     private static string Value(object? value) => value is null or DBNull ? "" : Convert.ToString(value,CultureInfo.InvariantCulture) ?? "";
     private static Dictionary<int,CatalogItem> LoadBaseline()
@@ -57,7 +41,7 @@ public sealed class CatalogRepository
         var reader = new DBCD.DBCD(new FilesystemDBCProvider(Db2Folder),new GithubDBDProvider());
         var sparse=reader.Load("ItemSparse","7.3.5.70450");
         var items=new Dictionary<int,CatalogItem>();
-        var aliases=new Dictionary<string,string> { ["Display_lang"]="Display",["Description_lang"]="Description" };
+        var aliases=new Dictionary<string,string> { ["Display_lang"]="Display",["Description_lang"]="Description",["Display1_lang"]="Display1",["Display2_lang"]="Display2",["Display3_lang"]="Display3",["Gem_properties"]="GemProperties",["Socket_match_enchantment_ID"]="SocketMatchEnchantmentId",["DamageType"]="DamageDamageType",["OppositeFactionItemID"]="FactionRelated" };
         foreach(var row in sparse.Values)
         {
             var fields=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
@@ -75,8 +59,11 @@ public sealed class CatalogRepository
             items[Convert.ToInt32(row.ID)]=new(fields);
         }
         var identity=reader.Load("Item","7.3.5.70450");
-        foreach(var row in identity.Values) if(items.TryGetValue(Convert.ToInt32(row.ID),out var item))
-        { item.Fields["ClassID"]=Value(row["ClassID"]); item.Fields["SubclassID"]=Value(row["SubclassID"]); }
+        foreach(var row in identity.Values) {
+            int id=Convert.ToInt32(row.ID);
+            if(!items.TryGetValue(id,out var item))items[id]=item=new(new() { ["ID"]=id.ToString(CultureInfo.InvariantCulture) });
+            item.Fields["ClassID"]=Value(row["ClassID"]);item.Fields["SubclassID"]=Value(row["SubclassID"]);
+        }
         return items;
     }
 }

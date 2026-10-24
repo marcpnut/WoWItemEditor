@@ -48,12 +48,13 @@ public partial class MainWindow : Window
             items=result.Items;
             tooltipData=result.Tooltips;
             catalogById=items.ToDictionary(i=>i.Id);
+            BindHistory(result);
             if(characterSnapshot is not null)characterItems=CharacterRows(characterSnapshot);
             int previousSet=(SetFilter.SelectedItem as FilterChoice)?.Id??-1;
             var sets=new[]{new FilterChoice(-1,"All equipment sets")}.Concat(tooltipData.Sets.Values.Where(s=>s.Members.Length>0).OrderBy(s=>s.Name).ThenBy(s=>s.Id).Select(s=>new FilterChoice(s.Id,$"{s.Name} · Set {s.Id} · {s.Members.Length} pieces"))).ToList();
             SetFilter.ItemsSource=sets;SetFilter.SelectedItem=sets.FirstOrDefault(s=>s.Id==previousSet)??sets[0];
             BindItems();
-            Status.Text=$"● Connected to MariaDB · {CatalogRepository.Database} · {items.Count:N0} items · {result.Overrides:N0} active overrides · Server build 70450";
+            SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
             if(verify) await VerifyAndRender(result);
         }
@@ -125,13 +126,16 @@ public partial class MainWindow : Window
     }
     private async void RefreshClick(object sender,RoutedEventArgs e)
     {
-        if(characterMode){Reload.IsEnabled=false;try{await LoadCharacters();}finally{Reload.IsEnabled=true;}}
+        if(historyMode)await LoadCatalog();
+        else if(characterMode){Reload.IsEnabled=false;try{await LoadCharacters();}finally{Reload.IsEnabled=true;}}
         else await LoadCatalog();
     }
     private async void Navigate(object sender,RoutedEventArgs e)
     {
         if(CatalogPage is null) return;
         string page=(string)((RadioButton)sender).Content;
+        if(page=="Change history"){ShowHistoryPage();return;}
+        historyMode=false;HistoryPage.Visibility=Visibility.Collapsed;
         bool wasCharacter=characterMode;
         characterMode=page=="Characters";
         if(wasCharacter!=characterMode&&view is not null){ClearClick(this,new RoutedEventArgs());StorageFilter.SelectedIndex=0;}
@@ -277,10 +281,13 @@ public partial class MainWindow : Window
     }
     private async Task VerifyAndRender(CatalogResult result)
     {
+        if(File.Exists("artifacts/verification-error.txt"))File.Delete("artifacts/verification-error.txt");
         void Check(bool ok,string message) { if(!ok) throw new InvalidOperationException("Verification failed: "+message); }
         Check(result.Items.Count>1000,"Full real catalog loaded");
         Check(result.Items.Select(i=>i.Id).Distinct().Count()==result.Items.Count,"One effective row per item ID");
         Check(result.Items.Count(i=>i.Overridden)==result.Overrides,"Active MariaDB overrides applied");
+        Check(catalogById[13009].Name=="Cow King's Hide"&&catalogById[14662].Name=="Keeper's Hooves","Definitions with different payload/registration builds are recovered");
+        Check(catalogById[17776].ClassId==4&&catalogById[13009].ClassId==4,"Native item identities are preserved for SQL-provided sparse definitions");
         var sample=items.First(i=>i.Id==22416);
         var dreadnaught=tooltipData.Sets[sample.Number("ItemSet")];
         Check(dreadnaught.Members.Length==9&&dreadnaught.Members.Contains(23059),"Dreadnaught includes nine pieces and its ring");
@@ -361,6 +368,37 @@ public partial class MainWindow : Window
         var unresolved=fakeEquipped[0] with {BonusLists="99999"};
         Check(tooltipData.Calculations.Evaluate(sample,60,unresolved).Stats.Count==0,"Unsupported instance bonuses cannot masquerade as exact stats");
         await File.WriteAllTextAsync("artifacts/character-verification.json",JsonSerializer.Serialize(new{characters=savedCharacters.Count,testedInstances,checks="Read-only inventory, equipment classification, preview-level validation, unchanged saved level, equipped set bonuses, unsupported-instance fallback"},new JsonSerializerOptions{WriteIndented=true}));
+        Check(result.History.Entries.Count(e=>e.Active)==result.Overrides,"History active count matches the catalog footer");
+        var bones=result.History.Entries.First(e=>e.Id==22476&&e.Active);
+        Check(bones.OriginalItem?.RequiredLevel==60&&bones.ModifiedItem.RequiredLevel==1,"Original snapshot is isolated from live changes");
+        Check(bones.Fields.Any(f=>f.Field=="RequiredLevel"&&f.Original=="60"&&f.Modified=="1"&&f.Changed),"Known field difference reports the real before/after values");
+        Check(bones.Activity.Count>0&&bones.Activity.All(e=>e.BeforeJson.Length>0&&e.AfterJson.Length>0),"Existing before/after activity retained for future revert/reapply");
+        var testTable=new HotfixTable([new() { ["ID"]="1",["VerifiedBuild"]="70009" }],new() { [1]=new(10,1,1,70291) });
+        Check(testTable.ActiveRows.ContainsKey(1),"Registration build is not a payload join key");
+        var removed=new HotfixTable(testTable.Rows,new() { [1]=new(11,1,2,70450) });Check(removed.ActiveRows.Count==0,"Removed records are not active");
+        var invalid=new HotfixTable(testTable.Rows,new() { [1]=new(12,1,3,70450) });Check(invalid.ActiveRows.Count==0,"Non-valid registrations are not active");
+        Check(!OverrideEntry.Compare(null,bones.ModifiedItem).Any(f=>f.Changed||f.Known),"Missing originals are not invented as zero-valued items");
+        Check(OverrideEntry.Equivalent("0.625","0.6250"),"Numeric formatting is not treated as a data change");
+        Check(HotfixHistory.SnapshotItem("{\"OriginalItem\":{\"ID\":\"2\",\"Display\":\"Other item\"},\"Tables\":{}}",1,true) is null,"Another item's snapshot is not presented as this item's original");
+        HistoryNav.IsChecked=true;HistoryState.SelectedIndex=1;ApplyHistoryFilters();
+        Check(historyView!.Cast<OverrideEntry>().All(e=>e.Active),"Active history filter");
+        HistoryActivity.SelectedIndex=1;ApplyHistoryFilters();Check(historyView!.Cast<OverrideEntry>().All(e=>e.Activity.Count>0),"Recorded-activity filter");
+        HistoryActivity.SelectedIndex=2;ApplyHistoryFilters();Check(historyView!.Cast<OverrideEntry>().All(e=>e.Activity.Count==0),"Unattributed-record filter");HistoryActivity.SelectedIndex=0;ApplyHistoryFilters();
+        HistoryGrid.SelectedItem=bones;HistoryGrid.ScrollIntoView(bones);ShowHistorySelection();
+        HistoryLevel.Text="1";ApplyHistoryLevel(this,new RoutedEventArgs());Check(historyLevel==1&&OriginalHistorySource.Text.Contains("level 1")&&ModifiedHistorySource.Text.Contains("level 1")&&HistoryGrid.SelectedItem is OverrideEntry same&&same.Id==bones.Id,"Both history previews use the same level without changing selection");
+        HistoryLevel.Text="0";ApplyHistoryLevel(this,new RoutedEventArgs());Check(historyLevel==1,"Invalid history level retains prior preview");HistoryLevel.Text="60";ApplyHistoryLevel(this,new RoutedEventArgs());
+        await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);UpdateLayout();
+        var historyBitmap=new RenderTargetBitmap((int)content.ActualWidth,(int)content.ActualHeight,96,96,PixelFormats.Pbgra32);historyBitmap.Render(content);
+        var historyEncoder=new PngBitmapEncoder();historyEncoder.Frames.Add(BitmapFrame.Create(historyBitmap));using(var file=File.Create("artifacts/history-preview.png"))historyEncoder.Save(file);
+        HistoryState.SelectedIndex=2;ApplyHistoryFilters();Check(historyView!.Cast<OverrideEntry>().All(e=>!e.Active),"Inactive history filter");
+        if(!historyView!.IsEmpty){
+            HistoryGrid.SelectedIndex=0;ShowHistorySelection();Check(ModifiedHistoryTitle.Text.Contains("INACTIVE")&&ModifiedHistorySource.Text.Contains("not active"),"Inactive preview is explicitly retained, not live");
+            await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);UpdateLayout();
+            var inactiveBitmap=new RenderTargetBitmap((int)content.ActualWidth,(int)content.ActualHeight,96,96,PixelFormats.Pbgra32);inactiveBitmap.Render(content);
+            var inactiveEncoder=new PngBitmapEncoder();inactiveEncoder.Frames.Add(BitmapFrame.Create(inactiveBitmap));using(var file=File.Create("artifacts/history-inactive-preview.png"))inactiveEncoder.Save(file);
+        }
+        HistorySearch.Text="__missing_history_search__";ApplyHistoryFilters();Check(historyView.IsEmpty&&HistoryGrid.SelectedItem is null,"Empty history search clears stale comparisons");HistorySearch.Clear();
+        await File.WriteAllTextAsync("artifacts/history-verification.json",JsonSerializer.Serialize(new{active=result.Overrides,inactive=result.History.Entries.Count(e=>!e.Active),rows=result.History.Entries.Count,recordedItems=result.History.Entries.Count(e=>e.Activity.Count>0),recovered=new[]{catalogById[13009].Name,catalogById[14662].Name},checks="Immutable originals, native identity recovery, cross-build registrations, active/inactive filters, retained inactive payload, synchronized preview level, no fabricated original, recorded activity retained, read-only WPF comparison"},new JsonSerializerOptions{WriteIndented=true}));
         await File.WriteAllTextAsync("artifacts/verification.json",JsonSerializer.Serialize(new { items=items.Count,activeOverrides=result.Overrides,sample=new { sample.Id,sample.Name,sample.RequiredLevel,sample.Source,calculated=tooltipData.Calculations.Evaluate(sample,60) },set=new { dreadnaught.Name,pieces=dreadnaught.Members.Length,bonuses=dreadnaught.Bonuses.Select(b=>new{b.Pieces,b.SpellId,text=tooltipData.SpellDescription(b.SpellId)}) },checks="Catalog, set filtering, clickable navigation, stat/armor calculation, fixed item levels, curve interpolation, character loading, instance fallback, equipment set counts, WPF renders passed" },new JsonSerializerOptions { WriteIndented=true }));
         Close();
     }
