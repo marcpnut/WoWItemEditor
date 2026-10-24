@@ -20,10 +20,12 @@ internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<Referen
 {
     internal TooltipData Data {get;init;}=new();
     internal Dictionary<int,Dictionary<string,string>> ItemEffects {get;init;}=[];
+    internal Dictionary<int,string> ProcExplanations {get;init;}=[];
+    internal string Explain(int spell,ContentRow? row=null,bool proc=false)=>SpellExplanation.Describe(Data,spell,row,row?.Bonus,proc)+(proc?"\n\n"+ProcExplanations.GetValueOrDefault(spell,"No proc chance/PPM data available. This does not imply a guaranteed proc."):"");
     internal static async Task<ReferenceCatalog> LoadAsync()
     {
-        string[] names=["Spell","SpellName","SpellEffect","SpellMisc","SpellDuration","SpellAuraOptions","ItemEffect","ItemXItemEffect","ItemSetSpell"];
-        string[] sql=["spell","spell_name","spell_effect","spell_misc","spell_duration","spell_aura_options","item_effect","item_x_item_effect","item_set_spell"];
+        string[] names=["Spell","SpellName","SpellEffect","SpellMisc","SpellDuration","SpellAuraOptions","ItemEffect","ItemXItemEffect","ItemSetSpell","SpellProcsPerMinute"];
+        string[] sql=["spell","spell_name","spell_effect","spell_misc","spell_duration","spell_aura_options","item_effect","item_x_item_effect","item_set_spell","spell_procs_per_minute"];
         var tables=await Task.Run(()=>{
             var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
             return names.ToDictionary(n=>n,n=>TooltipData.LoadTable(reader,n));
@@ -65,7 +67,14 @@ internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<Referen
             foreach(var effect in itemEffects[id])procs.Add(entry with{EffectId=N(effect,"ID"),Kind="Item effect",Trigger=Trigger(N(effect,"TriggerType")),Details=$"ITEM EFFECT {N(effect,"ID")}\n"+Section("Item effect fields",[effect])+details});
             if(!itemEffects[id].Any()&&(procRules[id].Any()||aura[id].Any(r=>TooltipData.Amount(r,"ProcTypeMask1")!=0||TooltipData.Amount(r,"ProcTypeMask2")!=0)))procs.Add(entry with{Kind="Proc spell",Trigger="Spell proc rules",Details="PROC SPELL · Proc rules are configured; no item effect is assigned.\n\n"+details});
         }
-        return new(spells.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ToList(),procs.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ThenBy(s=>s.EffectId).ToList()){Data=data,ItemEffects=tables["ItemEffect"]};
+        var explanations=ids.ToDictionary(id=>id,id=>ProcExplanation(aura[id],procRules[id],tables["SpellProcsPerMinute"]));
+        return new(spells.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ToList(),procs.OrderBy(s=>s.Name).ThenBy(s=>s.SpellId).ThenBy(s=>s.EffectId).ToList()){Data=data,ItemEffects=tables["ItemEffect"],ProcExplanations=explanations};
+    }
+    internal static string ProcExplanation(IEnumerable<Dictionary<string,string>> options,IEnumerable<Dictionary<string,string>> server,Dictionary<int,Dictionary<string,string>> ppm)
+    {
+        string Chance(string value)=>decimal.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out decimal chance)?chance is >=0 and <=100?value+"%":value+" (outside 0–100; server-defined, not a literal probability)":"Unavailable";var lines=new List<string>();foreach(var row in options){int rate=N(row,"SpellProcsPerMinuteID");string rateText=rate==0?"No PPM record":ppm.TryGetValue(rate,out var p)?$"{TooltipData.Read(p,"BaseProcRate")} procs/minute base rate (context modifiers may apply)":$"PPM record {rate} unavailable";lines.Add($"Spell proc defaults · difficulty {N(row,"DifficultyID")}: stored chance {Chance(TooltipData.Read(row,"ProcChance"))} · {rateText}\nSpell recovery: {SpellExplanation.Time(N(row,"ProcRecovery"))} · Proc charges: {N(row,"ProcCharges")}. These are spell defaults, not the final effective chance.");}
+        foreach(var row in server)lines.Add($"Server proc rule · spell {TooltipData.Read(row,"SpellId")}: stored chance {Chance(TooltipData.Read(row,"Chance"))} · PPM {TooltipData.Read(row,"ProcsPerMinute")} · cooldown {TooltipData.Read(row,"Cooldown")} (raw server units; custom semantics unverified). Flags, conditions and fallback rules determine which defaults apply.");
+        if(lines.Count==0)lines.Add("No proc chance/PPM records found. This does not mean 100% chance.");return string.Join("\n\n",lines);
     }
     private static int N(Dictionary<string,string> row,string key)=>TooltipData.Number(row,key);
     private static string Section(string title,IEnumerable<Dictionary<string,string>> rows)=>title+"\n"+(rows.Any()?string.Join("\n\n",rows.Select(r=>string.Join("\n",r.OrderBy(p=>p.Key).Select(p=>$"{p.Key}: {p.Value}")))):"No records")+"\n\n";

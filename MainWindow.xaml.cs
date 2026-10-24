@@ -56,7 +56,7 @@ public partial class MainWindow : Window
             BindItems();
             SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
-            if(verify){if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
+            if(verify){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
         }
         catch(Exception ex)
         {

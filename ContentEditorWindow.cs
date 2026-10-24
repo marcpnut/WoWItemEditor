@@ -50,7 +50,7 @@ internal sealed class ContentEditorWindow : Window
         var actions=new WrapPanel{Margin=new Thickness(0,0,0,10)};right.Children.Add(actions);
         add.Content=kind=="Set"?"Add bonus":"Add proc";
         foreach(var button in new[]{add,change,remove,save}){button.Margin=new Thickness(0,0,10,0);actions.Children.Add(button);}
-        change.Content="Change spell…";remove.Content="Remove";
+        var explain=new Button{Content="Explain selected…",Margin=new Thickness(0,0,10,0)};actions.Children.Add(explain);explain.Click+=(_,_)=>{if(rows.SelectedItem is not ContentRow row||session is null)return;var saved=session.Initial.FirstOrDefault(r=>r.Id!=0&&r.Id==row.Id)??session.Initial.FirstOrDefault(r=>r.SpellId==row.SpellId);new EffectExplanationWindow("Bonus / proc explanation",saved is null?"New assignment; no saved effect.":references.Explain(saved.SpellId,saved,kind=="Proc"),references.Explain(row.SpellId,row,kind=="Proc")){Owner=this}.ShowDialog();};change.Content="Change spell…";remove.Content="Remove";
         if(kind=="Set"){var values=new Button{Content="Edit bonus values…",Margin=new Thickness(0,0,10,0)};values.Click+=async(_,_)=>await EditBonusValues();actions.Children.Insert(2,values);}
         foreach(Button button in actions.Children)button.Padding=new Thickness(10,7,10,7);
         var reset=new Button{Content="Reload / discard draft"};reset.Click+=async(_,_)=>{if(choice is not null&&ConfirmDiscard())await SelectAsync(choice);};actions.Children.Add(reset);
