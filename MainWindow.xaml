@@ -3,7 +3,15 @@
   <Border Background="#1E1F22" BorderBrush="#36383F" BorderThickness="0,0,1,0"><DockPanel>
    <StackPanel DockPanel.Dock="Top" Margin="25,30,16,28"><TextBlock Text="ANOWOW" FontSize="24" FontWeight="Bold" Foreground="#70B8FF"/><TextBlock Text="ITEM EDITOR" FontSize="11" Foreground="#9299A5" Margin="1,5,0,0"/></StackPanel>
    <StackPanel DockPanel.Dock="Bottom" Margin="25,20"><TextBlock Text="BROWSE YOUR WORLD" FontSize="10" Foreground="#787F8C"/><TextBlock Text="Catalog workspace · v0.1" FontSize="11" Foreground="#9299A5" Margin="0,6,0,0"/></StackPanel>
-   <StackPanel><TextBlock Text="CATALOGS" Foreground="#787F8C" FontSize="10" Margin="26,4,0,12"/><RadioButton x:Name="ItemNav" Content="Item catalog" GroupName="Navigation" IsChecked="True" Checked="Navigate"/><RadioButton x:Name="CharacterNav" Content="Characters" GroupName="Navigation" Checked="Navigate"/><RadioButton Content="Spell catalog" GroupName="Navigation" Checked="Navigate"/><RadioButton Content="Proc catalog" GroupName="Navigation" Checked="Navigate"/></StackPanel>
+   <StackPanel>
+    <TextBlock Text="CHARACTERS" Foreground="#787F8C" FontSize="10" Margin="26,4,0,12"/>
+    <RadioButton x:Name="CharacterNav" Content="Characters" GroupName="Navigation" Checked="Navigate"/>
+    <Border Height="1" Background="#36383F" Margin="26,20,26,20"/>
+    <TextBlock Text="CATALOGS" Foreground="#787F8C" FontSize="10" Margin="26,0,0,12"/>
+    <RadioButton x:Name="ItemNav" Content="Item catalog" GroupName="Navigation" IsChecked="True" Checked="Navigate"/>
+    <RadioButton Content="Spell catalog" GroupName="Navigation" Checked="Navigate"/>
+    <RadioButton Content="Proc catalog" GroupName="Navigation" Checked="Navigate"/>
+   </StackPanel>
   </DockPanel></Border>
   <Grid Grid.Column="1" Margin="28,25,28,18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <Grid Margin="0,0,0,24"><StackPanel><TextBlock x:Name="PageTitle" Text="Item catalog" FontSize="27" FontWeight="SemiBold"/><TextBlock x:Name="PageSubtitle" Text="Explore your server’s items. Select a row to inspect its details." Foreground="#9299A5" Margin="0,6,0,0"/></StackPanel><Button x:Name="Reload" Content="↻   Refresh items" HorizontalAlignment="Right" VerticalAlignment="Center" Click="RefreshClick"/></Grid>
