@@ -61,6 +61,7 @@ public partial class MainWindow
         HistoryState.SelectedIndex=0;ShowRemovedHistory.IsChecked=true;ApplyHistoryFilters();Assert(historyView!.Cast<OverrideEntry>().All(e=>e.OriginalItem is not null),"Items without originals never appear in History, including removed entries");ShowRemovedHistory.IsChecked=false;
         await VerifyContentEditors(catalog,references);
         await VerifyItemAndBonusEditing(catalog,references);
+        await VerifyDesigner(catalog,references);
         await File.WriteAllTextAsync("artifacts/action-reference-verification.json",JsonSerializer.Serialize(new{spells=references.Spells.Count,itemEffects=references.Procs.Count(p=>p.EffectId.HasValue),candidates=references.Procs.Count(p=>!p.EffectId.HasValue),checks="Revert/reapply exact payload roundtrip, immutable archive, audit mirror, stale conflict rejection, shared dependencies unchanged, all test writes rolled back; history filters; complete read-only spell/proc catalogs and search"},new JsonSerializerOptions{WriteIndented=true}));
     }
     private async Task RenderFeature(string name)

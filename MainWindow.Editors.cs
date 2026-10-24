@@ -4,6 +4,10 @@ namespace AnoWowItemEditor;
 public partial class MainWindow
 {
     private bool editorLoading;
+    private async void OpenDesigner(object sender,RoutedEventArgs e)
+    {
+        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? id=(ItemsGrid.SelectedItem as CatalogItem)?.Id??(ItemsGrid.SelectedItem as CharacterItemRow)?.Item.Id;var window=new DesignerWindow(loadedCatalog,id){Owner=this};window.ShowDialog();if(window.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open designer: "+ex.Message;}finally{editorLoading=false;}
+    }
     private void EditItemDoubleClick(object sender,System.Windows.Input.MouseButtonEventArgs e){if(ItemsGrid.SelectedItem is not null)OpenItemEditor(sender,new RoutedEventArgs());}
     private async void OpenItemEditor(object sender,RoutedEventArgs e)
     {

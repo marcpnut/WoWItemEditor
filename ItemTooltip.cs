@@ -88,7 +88,7 @@ internal static class ItemTooltip
                 foreach(int member in set.Members) lines.Add(new(catalog.TryGetValue(member,out var entry)?entry.Name:$"Item {member}",equipped.Any(i=>i.Entry==member)?Green:Gray,Indent:12,TargetItem:member));
                 Gap();
                 bool skillMet=set.RequiredSkill==0||(character?.Skills?.GetValueOrDefault(set.RequiredSkill)??0)>=set.RequiredSkillRank;
-                foreach(var bonus in set.Bonuses)Add($"({bonus.Pieces}) Set: {data.SpellDescription(bonus.SpellId)}"+(bonus.Specialization>0?$" [Specialization {bonus.Specialization}]":""),equipped.Length>=bonus.Pieces&&set.Flags==0&&skillMet&&(bonus.Specialization==0||bonus.Specialization==character?.Character.Specialization)?Green:Gray);
+                foreach(var bonus in set.Bonuses)Add($"({bonus.Pieces}) Set: {data.SpellDescription(bonus.SpellId)}"+(bonus.Specialization>0?$" [Specialization {bonus.Specialization}]":""),equipped.Length>=bonus.Pieces&&set.Flags==0&&bonus.Trait==0&&skillMet&&(bonus.Specialization==0||bonus.Specialization==character?.Character.Specialization)?Green:Gray);
             } else Add($"Set {item.Number("ItemSet")} [details unavailable]",Gold);
         }
         if(item.Text("Description").Length>0){Gap();Add("“"+item.Text("Description")+"”",Gold);}

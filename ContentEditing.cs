@@ -9,7 +9,7 @@ internal sealed record ContentRow(int Id,int EffectId,int SpellId,int Pieces=2,i
 {
     public string TriggerLabel=>ReferenceCatalog.Trigger(Trigger);
 }
-internal sealed record ContentScope(string Kind,int EntityId,int[] RowIds,int[] EffectIds,int[] NativeRowIds,int[] NativeEffectIds,BonusScope? Bonus=null,string? ItemFingerprint=null);
+internal sealed record ContentScope(string Kind,int EntityId,int[] RowIds,int[] EffectIds,int[] NativeRowIds,int[] NativeEffectIds,BonusScope? Bonus=null,string? ItemFingerprint=null,CloneScope? CopyScope=null);
 internal sealed record ContentSession(ContentScope Scope,List<ContentRow> Initial,ItemSnapshot Expected,string Fingerprint,Dictionary<string,Dictionary<int,Dictionary<string,string>>> Native,Dictionary<int,Dictionary<string,string>> EffectiveRows,Dictionary<int,Dictionary<string,string>> EffectiveEffects,int MaxPieces);
 internal sealed record ContentOperation(string Id,string Kind,int EntityId,string Name,bool Active,bool Hidden,int Version,string Before,string After,string Expected,string Scope,string Fingerprint,string RecordedUtc);
 
@@ -55,6 +55,7 @@ internal static class ContentEditing
     }
     internal static async Task<ItemSnapshot> CaptureAsync(MySqlConnection db,MySqlTransaction? tx,ContentScope scope,bool locked=false)
     {
+        if(scope.Kind=="Clone")return await ItemCloning.CaptureAsync(db,tx,scope.EntityId,scope.CopyScope!,locked);
         if(scope.Kind=="Item")return await HistoryActions.CaptureAsync(db,tx,scope.EntityId,locked);
         string suffix=locked?" FOR UPDATE":"";int id=scope.EntityId;var tables=new Dictionary<string,List<Dictionary<string,string?>>>();
         string main=scope.Kind=="Set"?"item_set_spell":"item_x_item_effect",parent=scope.Kind=="Set"?"ItemSetID":"ItemID";
@@ -185,7 +186,7 @@ internal static class ContentEditing
         if(HistoryActions.Canonical(current)!=HistoryActions.Canonical(expected))throw new InvalidOperationException("Conflict: newer edits or shared references exist. This archived edit cannot be applied automatically; reopen the editor to review the current configuration.");
         var target=JsonSerializer.Deserialize<ItemSnapshot>(op.Active?op.Before:op.After)!;
         var before=JsonSerializer.Deserialize<ItemSnapshot>(op.Before)!;var after=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;
-        foreach(string table in (scope.Kind=="Set"?new[]{"item_set_spell"}:scope.Kind=="Item"?new[]{"item_sparse","item"}:new[]{"item_effect","item_x_item_effect"})){
+        foreach(string table in (scope.Kind=="Clone"?Array.Empty<string>():scope.Kind=="Set"?new[]{"item_set_spell"}:scope.Kind=="Item"?new[]{"item_sparse","item"}:new[]{"item_effect","item_x_item_effect"})){
             var ids=before.Tables[table].Concat(after.Tables[table]).Select(r=>int.Parse(r["ID"]!)).Concat(scope.Kind=="Set"||table=="item_x_item_effect"?scope.RowIds:scope.EffectIds).Distinct();
             foreach(int id in ids){
                 var oldRows=before.Tables[table].Where(r=>r["ID"]==id.ToString()).ToList();var newRows=after.Tables[table].Where(r=>r["ID"]==id.ToString()).ToList();
@@ -201,6 +202,7 @@ internal static class ContentEditing
                 await Register(db,tx,table,id,status);
             }
         }
+        if(scope.CopyScope is not null)await ItemCloning.RestoreAsync(db,tx,scope,target);
         if(scope.Bonus is not null)await BonusSpells.RestoreAsync(db,tx,scope.Bonus,target);
         var resulting=await CaptureAsync(db,tx,scope,true);
         using(var cmd=new MySqlCommand($"UPDATE {Operations} SET IsActive=@active,IsHidden=0,Version=Version+1,ExpectedJson=@expected WHERE OperationId=@op",db,tx)){cmd.Parameters.AddWithValue("@active",!op.Active);cmd.Parameters.AddWithValue("@expected",HistoryActions.Serialize(resulting));cmd.Parameters.AddWithValue("@op",op.Id);await cmd.ExecuteNonQueryAsync();}

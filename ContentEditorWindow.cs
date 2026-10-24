@@ -6,7 +6,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 namespace AnoWowItemEditor;
 
-internal sealed record ContentChoice(int Id,string Name){public string Label=>$"{Name} · {Id}";}
+internal sealed record ContentChoice(int Id,string Name){public string Label=>$"{Name} · {Id}";public override string ToString()=>Label;}
 internal sealed class ContentEditorWindow : Window
 {
     private readonly string kind;

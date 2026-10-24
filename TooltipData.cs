@@ -6,7 +6,7 @@ using DBCD.Providers;
 using MySqlConnector;
 namespace AnoWowItemEditor;
 
-public sealed record SetBonus(int Pieces, int SpellId, int Specialization);
+public sealed record SetBonus(int Pieces, int SpellId, int Specialization,int Trait=0);
 public sealed record ItemSetInfo(int Id, string Name, int[] Members, SetBonus[] Bonuses,int Flags=0,int RequiredSkill=0,int RequiredSkillRank=0);
 public sealed record ItemSpellInfo(int SpellId, int Trigger, int Cooldown);
 
@@ -94,7 +94,7 @@ public sealed class TooltipData
             var members=Enumerable.Range(1,17).Select(n=>Number(row,"ItemID"+n)).Where(n=>n>0).Distinct().ToList();
             members.RemoveAll(n=>catalogById.TryGetValue(n,out var item)&&item.Number("ItemSet")!=id);
             members.AddRange(catalog.Where(i=>i.Number("ItemSet")==id&&!members.Contains(i.Id)).Select(i=>i.Id));
-            var bonuses=baseline.Bonuses.Values.Where(b=>Number(b,"ItemSetID")==id).Select(b=>new SetBonus(Number(b,"Threshold"),Number(b,"SpellID"),Number(b,"ChrSpecID"))).OrderBy(b=>b.Pieces).ThenBy(b=>b.Specialization).ToArray();
+            var bonuses=baseline.Bonuses.Values.Where(b=>Number(b,"ItemSetID")==id).Select(b=>new SetBonus(Number(b,"Threshold"),Number(b,"SpellID"),Number(b,"ChrSpecID"),Number(b,"TraitSubTreeID"))).OrderBy(b=>b.Pieces).ThenBy(b=>b.Specialization).ToArray();
             result.Sets[id]=new(id,Read(row,"Name"),members.ToArray(),bonuses,Number(row,"SetFlags"),Number(row,"RequiredSkill"),Number(row,"RequiredSkillRank"));
         }
         foreach(var row in baseline.Links.Values)

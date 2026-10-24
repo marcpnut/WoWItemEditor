@@ -25,8 +25,8 @@ internal sealed class SpellFilters : WrapPanel
     internal void Bind(IEnumerable<ReferenceEntry> entries)
     {
         int effect=Selected(Effect),aura=Selected(Aura);
-        Effect.ItemsSource=new[]{new FilterChoice(-1,"All effect types")}.Concat(entries.SelectMany(s=>s.EffectTypes).Distinct().Order().Select(n=>new FilterChoice(n,$"Effect {n}"))).ToList();
-        Aura.ItemsSource=new[]{new FilterChoice(-1,"All aura types")}.Concat(entries.SelectMany(s=>s.AuraTypes).Distinct().Order().Select(n=>new FilterChoice(n,$"Aura {n}"))).ToList();
+        Effect.ItemsSource=new[]{new FilterChoice(-1,"All effect types")}.Concat(entries.SelectMany(s=>s.EffectTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Effect(n)))).ToList();
+        Aura.ItemsSource=new[]{new FilterChoice(-1,"All aura types")}.Concat(entries.SelectMany(s=>s.AuraTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Aura(n)))).ToList();
         Effect.SelectedItem=Effect.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==effect)??Effect.Items[0];Aura.SelectedItem=Aura.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==aura)??Aura.Items[0];
     }
     internal void Reset(){foreach(var box in new[]{School,Effect,Aura,Usage,Description})box.SelectedIndex=0;Changed?.Invoke();}
