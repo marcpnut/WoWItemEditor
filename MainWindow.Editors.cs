@@ -4,6 +4,7 @@ namespace AnoWowItemEditor;
 public partial class MainWindow
 {
     private bool editorLoading;
+    private void OpenSetAnalysis(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? set=(ItemsGrid.SelectedItem as CatalogItem)?.Number("ItemSet");new SetAnalysisWindow(loadedCatalog,set>0?set:null){Owner=this}.ShowDialog();}catch(Exception ex){Status.Text=ex.Message;}finally{editorLoading=false;}}
     private async void OpenCreatedSets(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var window=new CreatedSetsWindow(loadedCatalog,await EditorReferences()){Owner=this};window.ShowDialog();if(window.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open created sets: "+ex.Message;}finally{editorLoading=false;}}
     private async void OpenSetCreator(object sender,RoutedEventArgs e)
     {

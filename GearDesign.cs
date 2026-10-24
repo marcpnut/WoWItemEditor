@@ -32,7 +32,7 @@ internal static class GearDesign
     {
         var total=new Totals();foreach(var owned in equipment.Where(i=>i.Equipped)){
             if(!catalog.TryGetValue(owned.Entry,out var item)){total.Unknown.Add("Unknown item definition");continue;}
-            var value=data.Calculations.Evaluate(item,level,owned.Guid==ulong.MaxValue?null:owned);
+            var value=data.Calculations.Evaluate(item,level,owned.Guid==ulong.MaxValue||owned.Location=="Set preview"?null:owned);
             void Add(string key,double? amount){if(amount.HasValue)total.Values[key]=total.Values.GetValueOrDefault(key)+amount.Value;else total.Unknown.Add(key);}
             if(item.ClassId==4&&item.Number("SubclassID") is >=1 and <=6&&item.Slot>0)Add("Armor",value.Armor);
             for(int n=1;n<=10;n++)if(item.Number("StatModifierBonusStat"+n)>=0&&item.Number("StatPercentEditor"+n)!=0){string key=ItemTooltip.StatNames.GetValueOrDefault(item.Number("StatModifierBonusStat"+n))??$"Stat {item.Number("StatModifierBonusStat"+n)}";Add(key,value.Stats.TryGetValue(n,out int amount)?amount:null);}

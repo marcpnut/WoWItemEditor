@@ -30,6 +30,17 @@ internal static class BossDrops
 }
 internal static class ItemDropEditing
 {
+    internal static async Task<(CatalogItem Item,ItemSnapshot Expected)> LoadSession(int id)
+    {
+        using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);await ContentEditing.InitializeAsync(db);using var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
+        var session=await ItemEditing.LoadAsync(id,db,tx);var expected=await Capture(db,tx,id);await tx.CommitAsync();return(session.Current,expected);
+    }
+    internal static DropPlan? CurrentPlan(WorldDropCatalog world,CatalogItem item,ItemSnapshot snapshot)
+    {
+        if(snapshot.Tables["world_drop_policy"].FirstOrDefault() is {} policy)return JsonSerializer.Deserialize<DropPlan>(policy["PlanJson"]!);
+        var rows=snapshot.Tables["world_loot"];if(rows.Count==0)return null;var rates=rows.Select(r=>decimal.Parse(r["Chance"]!,CultureInfo.InvariantCulture)).Distinct().ToArray();if(rates.Length!=1||rows.Any(r=>!world.Bosses.Any(b=>b.LootId.ToString()==r["Entry"])))return null;
+        try{return BossDrops.Plan(world,item,world.Bosses.Where(b=>rows.Any(r=>r["Entry"]==b.LootId.ToString())).Select(b=>b.Key),rates[0]);}catch(InvalidOperationException){return null;}
+    }
     internal static async Task<ItemSnapshot> Capture(MySqlConnection db,MySqlTransaction? tx,int id,bool locked=false){var item=await HistoryActions.CaptureAsync(db,tx,id,locked);foreach(var p in await WorldDrops.Capture(db,tx,new([id]),locked))item.Tables[p.Key]=p.Value;return item;}
     internal static async Task<ItemSnapshot> Load(int id){using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);await ContentEditing.InitializeAsync(db);return await Capture(db,null,id);}
     internal static Task Save(CatalogItem item,ItemSnapshot expected,DropPlan plan)=>ContentEditing.Transaction(async(db,tx)=>{await SaveCore(db,tx,item,expected,plan);return true;});

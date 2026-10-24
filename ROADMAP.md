@@ -9,7 +9,7 @@ Item, set-bonus and weapon-proc editors now support drafts, side-by-side WoW too
 The user verified item revert and inactive history removal in game. Server-supplied item definitions without an original are excluded from item History and its displayed counts, while remaining in the catalog.
 
 - Add optional per-weapon proc chance/PPM editing only after verifying the server rules. Current editors configure item-effect triggers/cooldowns/charges and preserve global spell_proc rules.
-- Add membership/name changes for existing sets if requested; the new set creator already creates independent membership and names.
+- Consider membership/name editing for native sets if requested; Modify created sets already supports created-set membership and names.
 - Extend history conflict resolution for overlapping successive edits. Current operations block automatic restore when newer rows/registrations or external references differ.
 - Resolve unsupported instance bonus lists, random properties, conditional/nonlinear scaling and maximum durability using verified server/client rules.
 - Continue in-game checks of set bonuses, proc behavior and level previews as those features expand. Database verification alone does not test live server behavior.
@@ -23,3 +23,5 @@ The user verified item revert and inactive history removal in game. Server-suppl
 Implemented after the crash review: effective calculation-row safety gates, immediate stat draft updates, named material filters, readable allowed classes, instance/boss-only drops, searchable aura/effect choices, explained and bounded private bonus values, and Modify created sets with duplicate additions, non-destructive member removal, rename and transactional history. See SERVER_SAFETY.md for observed table bounds and the limits of crash diagnosis without matching symbols.
 
 Set workspaces now include an equipment-slot layout with selection tooltips and double-click item editing. Live character model rendering and actual item icon artwork remain future work.
+
+Completed: selected-slot drop editing, searchable instance/boss destinations with retained selections, readable saved loot sources/rates, explicit draft-copy plans, complete-set character simulation and reference-set balance review. Numeric comparisons default to common slots and report base stats separately from bonus/proc power. Next validation remains in-game equip/tooltip and actual boss-loot behavior when WoW is available. Future simulation work includes verified enchant/gem totals, class proficiencies, talent-specific hand rules and proc/set-effect power.

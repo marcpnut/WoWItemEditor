@@ -15,6 +15,7 @@
     <TextBlock Text="EDITORS" Foreground="#787F8C" FontSize="10" Margin="26,0,0,8"/>
     <Button Content="Set creator" Click="OpenSetCreator" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Modify created sets" Click="OpenCreatedSets" Margin="10,3" HorizontalContentAlignment="Left"/>
+    <Button Content="Set preview &amp; balance" Click="OpenSetAnalysis" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Gear designer" Click="OpenDesigner" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Items" Click="OpenItemEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Set bonuses" Click="OpenSetEditor" Margin="10,3" HorizontalContentAlignment="Left"/>
