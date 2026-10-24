@@ -19,7 +19,7 @@ public sealed class CatalogItem
     public string QualityName => Qualities.ElementAtOrDefault(Quality) ?? $"Quality {Quality}";
     public string SlotName => Slots.GetValueOrDefault(Slot) ?? $"Slot {Slot}";
     public string TypeName => Classes.GetValueOrDefault(ClassId) ?? "Unknown";
-    public string Source => Overridden ? "MariaDB override" : "Server DB2";
+    public string Source => !Fields.ContainsKey("OverallQualityID")?"Definition unavailable":Overridden ? "MariaDB override" : "Server DB2";
     public Brush NameBrush => new SolidColorBrush((Color)ColorConverter.ConvertFromString(Colors.ElementAtOrDefault(Quality) ?? "#FFFFFF"));
     public static readonly string[] Qualities = ["Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Artifact", "Heirloom", "WoW Token"];
     private static readonly string[] Colors = ["#9D9D9D", "#FFFFFF", "#1EFF00", "#0070DD", "#A335EE", "#FF8000", "#E6CC80", "#00CCFF", "#00CCFF"];

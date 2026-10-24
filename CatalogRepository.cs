@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using DBCD.Providers;
 using MySqlConnector;
 namespace AnoWowItemEditor;
@@ -13,15 +11,9 @@ public sealed class CatalogRepository
     internal const string Db2Folder = @"C:\AnoCore\AnoCore-Server\data\dbc\enUS";
     internal const string Database = "foreverclassic_hotfixes";
     private const uint SparseHash = 2442913102;
-    private sealed record LoginInfo(string Server, uint Port, string User, string Password);
     public async Task<CatalogResult> LoadAsync()
     {
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnoCoreItemEditorStudio", "mariadb-login.dat");
-        if (!File.Exists(path)) throw new InvalidOperationException("No saved MariaDB login found. Save your connection in the previous ItemEditor app, then retry.");
-        var login = JsonSerializer.Deserialize<LoginInfo>(Encoding.UTF8.GetString(ProtectedData.Unprotect(await File.ReadAllBytesAsync(path), null, DataProtectionScope.CurrentUser))) ?? throw new InvalidOperationException("Saved MariaDB login could not be read.");
-        var cs = new MySqlConnectionStringBuilder { Server=login.Server, Port=login.Port, UserID=login.User, Password=login.Password, Database=Database, ConnectionTimeout=8, SslMode=MySqlSslMode.Preferred };
-        using var db = new MySqlConnection(cs.ConnectionString);
-        await db.OpenAsync();
+        using var db = await DatabaseConnection.OpenAsync(Database);
         // Obtain the actual TableHash from the installed file, validating the known build convention.
         using (var file = File.OpenRead(Path.Combine(Db2Folder,"ItemSparse.db2")))
         {
@@ -46,15 +38,18 @@ public sealed class CatalogRepository
             }
         }
         // Custom item identity provides type information for IDs absent from the original DB2.
-        using(var cmd=new MySqlCommand("SELECT ID,ClassID,SubclassID FROM item ORDER BY CASE WHEN VerifiedBuild=70450 THEN 0 WHEN VerifiedBuild=0 THEN 1 ELSE 2 END",db))
+        using(var cmd=new MySqlCommand("SELECT s.ID,s.ClassID,s.SubclassID FROM item s WHERE s.VerifiedBuild IN (70450,0) AND EXISTS (SELECT 1 FROM hotfix_data h WHERE h.RecordId=s.ID AND h.TableHash=@hash AND h.VerifiedBuild=s.VerifiedBuild AND h.Status=1) ORDER BY CASE WHEN s.VerifiedBuild=70450 THEN 0 ELSE 1 END",db))
+        {
+        cmd.Parameters.AddWithValue("@hash",TooltipData.Hash("Item"));
         using(var rows=await cmd.ExecuteReaderAsync())
         {
             var seen=new HashSet<int>();
-            while(await rows.ReadAsync()) { int id=Convert.ToInt32(rows["ID"]); if(!seen.Add(id)||!items.TryGetValue(id,out var item)) continue; if(!item.Fields.ContainsKey("ClassID")) { item.Fields["ClassID"]=Value(rows["ClassID"]); item.Fields["SubclassID"]=Value(rows["SubclassID"]); } }
+            while(await rows.ReadAsync()) { int id=Convert.ToInt32(rows["ID"]); if(!seen.Add(id)||!items.TryGetValue(id,out var item)) continue; item.Fields["ClassID"]=Value(rows["ClassID"]); item.Fields["SubclassID"]=Value(rows["SubclassID"]); }
+        }
         }
         var catalog=items.Values.Where(i=>i.Text("Display").Length>0 || i.Overridden).OrderBy(i=>i.Name,StringComparer.OrdinalIgnoreCase).ToList();
         var tooltips=await TooltipData.LoadAsync(db,catalog);
-        return new(catalog,applied.Count,login.Server,tooltips);
+        return new(catalog,applied.Count,db.DataSource,tooltips);
     }
     private static string Value(object? value) => value is null or DBNull ? "" : Convert.ToString(value,CultureInfo.InvariantCulture) ?? "";
     private static Dictionary<int,CatalogItem> LoadBaseline()

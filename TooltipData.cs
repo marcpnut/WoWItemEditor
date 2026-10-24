@@ -7,7 +7,7 @@ using MySqlConnector;
 namespace AnoWowItemEditor;
 
 public sealed record SetBonus(int Pieces, int SpellId, int Specialization);
-public sealed record ItemSetInfo(int Id, string Name, int[] Members, SetBonus[] Bonuses);
+public sealed record ItemSetInfo(int Id, string Name, int[] Members, SetBonus[] Bonuses,int Flags=0,int RequiredSkill=0,int RequiredSkillRank=0);
 public sealed record ItemSpellInfo(int SpellId, int Trigger, int Cooldown);
 
 // A read-only snapshot of the same installed build and active hotfixes as the item catalog.
@@ -20,6 +20,7 @@ public sealed class TooltipData
     public Dictionary<int,string> Skills { get; } = [];
     public Dictionary<int,string> Factions { get; } = [];
     public Dictionary<int,string> Enchantments { get; } = [];
+    public ItemCalculations Calculations { get; internal set; } = new();
     internal Dictionary<int,Dictionary<string,string>> Spells { get; } = [];
     internal Dictionary<(int Spell,int Index),Dictionary<string,string>> Effects { get; } = [];
     internal Dictionary<int,Dictionary<string,string>> Durations { get; } = [];
@@ -55,7 +56,7 @@ public sealed class TooltipData
         if(Encoding.ASCII.GetString(header,0,4)!="WDC5") throw new InvalidOperationException($"Unsupported DB2 header: {table}");
         return BitConverter.ToUInt32(header,152);
     }
-    private static async Task Overlay(MySqlConnection db,string table,string db2,Dictionary<int,Dictionary<string,string>> rows)
+    internal static async Task Overlay(MySqlConnection db,string table,string db2,Dictionary<int,Dictionary<string,string>> rows)
     {
         // Only these internally named tables are passed here; no user text enters identifiers.
         using var cmd=new MySqlCommand($"SELECT s.* FROM `{table}` s WHERE s.VerifiedBuild IN (70450,0) AND EXISTS (SELECT 1 FROM hotfix_data h WHERE h.TableHash=@hash AND h.RecordId=s.ID AND h.VerifiedBuild=s.VerifiedBuild AND h.Status=1) ORDER BY s.ID,CASE WHEN s.VerifiedBuild=70450 THEN 0 ELSE 1 END",db);
@@ -104,7 +105,7 @@ public sealed class TooltipData
             members.RemoveAll(n=>catalogById.TryGetValue(n,out var item)&&item.Number("ItemSet")!=id);
             members.AddRange(catalog.Where(i=>i.Number("ItemSet")==id&&!members.Contains(i.Id)).Select(i=>i.Id));
             var bonuses=baseline.Bonuses.Values.Where(b=>Number(b,"ItemSetID")==id).Select(b=>new SetBonus(Number(b,"Threshold"),Number(b,"SpellID"),Number(b,"ChrSpecID"))).OrderBy(b=>b.Pieces).ThenBy(b=>b.Specialization).ToArray();
-            result.Sets[id]=new(id,Read(row,"Name"),members.ToArray(),bonuses);
+            result.Sets[id]=new(id,Read(row,"Name"),members.ToArray(),bonuses,Number(row,"SetFlags"),Number(row,"RequiredSkill"),Number(row,"RequiredSkillRank"));
         }
         foreach(var row in baseline.Links.Values)
         {
@@ -133,6 +134,7 @@ public sealed class TooltipData
         await Overlay(db,"spell_misc","SpellMisc",misc);
         foreach(var (id,row) in durations)result.Durations[id]=row;
         foreach(var row in misc.Values.Where(r=>Number(r,"DifficultyID")==0))result.Misc[Number(row,"SpellID")]=row;
+        result.Calculations=await ItemCalculations.LoadAsync(db,reader);
         return result;
     }
     public string SpellDescription(int id)
