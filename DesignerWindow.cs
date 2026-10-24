@@ -108,6 +108,15 @@ internal sealed class DesignerWindow : Window
         foreach(var p in setPieces)lines.Add(new(p.Name,p.Selected?ItemTooltip.Green:ItemTooltip.Gray,Indent:10));foreach(int id in missing)lines.Add(new($"Item {id} · definition unavailable",ItemTooltip.Gray,Indent:10));lines.Add(new("",Size:5));foreach(var bonus in set.Bonuses){bool conditional=bonus.Specialization!=0||set.RequiredSkill!=0||bonus.Trait!=0||set.Flags!=0;lines.Add(new($"({bonus.Pieces}) {(count>=bonus.Pieces?conditional?"Conditional":"Active":"Inactive")}: {catalog.Tooltips.SpellDescription(bonus.SpellId)}"+(bonus.Specialization!=0?$" [Spec {bonus.Specialization}]":"")+(bonus.Trait!=0?$" [Trait {bonus.Trait}]":""),count>=bonus.Pieces&&!conditional?ItemTooltip.Green:ItemTooltip.Gray));}if(set.RequiredSkill>0)lines.Add(new($"Requires {catalog.Tooltips.Skills.GetValueOrDefault(set.RequiredSkill)??$"Skill {set.RequiredSkill}"} ({set.RequiredSkillRank})",ItemTooltip.Gold));TooltipView.Fill(setTooltip,lines);
     }
     private async Task EditDrops(CatalogItem item){if(busy)return;try{busy=true;var editor=new DropLocationWindow(item,persist:true){Owner=this};editor.ShowDialog();if(editor.Saved){Saved=true;await Refresh();}}catch(Exception ex){feedback.Text=ex.Message;}finally{busy=false;}}
-    private async Task EditItem(int id){if(busy)return;try{busy=true;var w=new ItemEditorWindow(catalog,id){Owner=this};w.ShowDialog();if(w.Saved){Saved=true;await Refresh();}}finally{busy=false;}}
+    private async Task EditItem(int id){if(busy)return;try{busy=true;var w=new ItemEditorWindow(catalog,id){Owner=this};w.ShowDialog();if(w.Saved){Saved=true;await RefreshItems(w.SavedItemIds);}}catch(Exception ex){feedback.Text=ex.Message;}finally{busy=false;}}
+    private async Task RefreshItems(IEnumerable<int> ids)
+    {
+        feedback.Text="Refreshing edited items…";var changed=new List<CatalogItem>();foreach(int id in ids)changed.Add((await ItemEditing.LoadAsync(id)).Current);
+        var choices=setPieces.ToDictionary(p=>p.Id,p=>p.Selected);var selected=(pieces.SelectedItem as SetPieceChoice)?.Id;
+        catalog=SetCatalogRefresh.Items(catalog,changed);lookup=catalog.Items.ToDictionary(i=>i.Id);if(candidate is not null)candidate=lookup.GetValueOrDefault(candidate.Id);
+        BindItems();BindSets();foreach(var piece in setPieces)if(choices.TryGetValue(piece.Id,out bool active))piece.Selected=active;Update();UpdateSet();
+        if(selected.HasValue)equipmentSelection();feedback.Text="Edited items refreshed. Other catalog data was retained.";
+        void equipmentSelection(){var piece=setPieces.FirstOrDefault(p=>p.Id==selected);if(piece is not null){pieces.SelectedItem=piece;setEquipment.SelectKey(piece);}}
+    }
     private async Task Refresh(){try{feedback.Text="Refreshing designer data…";catalog=await new CatalogRepository().LoadAsync();itemKinds.Bind(catalog.Tooltips);lookup=catalog.Items.ToDictionary(i=>i.Id);BindItems();BindSets();Update();feedback.Text="Refreshed. Saved character equipment is unchanged.";}catch(Exception ex){feedback.Text=ex.Message;}}
 }

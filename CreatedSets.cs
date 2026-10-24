@@ -5,12 +5,12 @@ namespace AnoWowItemEditor;
 internal sealed record CreatedSetSession(int Id,string Name,Dictionary<int,CloneBlueprint> Members,SetCreationScope Scope,ItemSnapshot Expected,string Fingerprint);
 internal static class CreatedSets
 {
-    internal static async Task<CreatedSetSession> Load(int id)
+    internal static async Task<CreatedSetSession> Load(int id,CreatedSetSession? previous=null)
     {
         var creation=(await ContentEditing.ListAsync()).FirstOrDefault(o=>o.Kind=="NewSet"&&o.EntityId==id&&o.Active)??throw new InvalidOperationException("Only active sets created by this editor can be modified here.");
         using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);
         var rows=await WorldDrops.Query(db,null,$"SELECT * FROM item_set WHERE ID={id} ORDER BY VerifiedBuild DESC");var row=rows.FirstOrDefault()??throw new InvalidOperationException("This created set is no longer present. Refresh the catalog.");
-        var ids=Enumerable.Range(1,17).Select(n=>int.TryParse(row.GetValueOrDefault("ItemID"+n),out int value)?value:0).Where(n=>n>0).Distinct().ToArray();var members=new Dictionary<int,CloneBlueprint>();foreach(int item in ids){var loaded=await ItemCloning.LoadAsync(item);if(loaded.Item.Native is not null||loaded.Item.Current.Number("ItemSet")!=id)throw new InvalidOperationException("Set membership is inconsistent or contains a native original. Repair the definition before modifying it.");members[item]=loaded;}
+        var ids=Enumerable.Range(1,17).Select(n=>int.TryParse(row.GetValueOrDefault("ItemID"+n),out int value)?value:0).Where(n=>n>0).Distinct().ToArray();var members=new Dictionary<int,CloneBlueprint>();foreach(int item in ids){CloneBlueprint? loaded=null;if(previous?.Id==id&&previous.Members.TryGetValue(item,out var cached)&&cached.SourceScope.Fingerprint==ItemCloning.Fingerprint()&&cached.Item.Fingerprint==ContentEditing.Fingerprint()&&cached.Item.IdentityFingerprint==ItemEditing.IdentityFingerprint()&&HistoryActions.Canonical(await ItemCloning.CaptureAsync(db,null,item,cached.SourceScope))==HistoryActions.Canonical(cached.SourceExpected))loaded=cached;loaded??=await ItemCloning.LoadAsync(item);if(loaded.Item.Native is not null||loaded.Item.Current.Number("ItemSet")!=id)throw new InvalidOperationException("Set membership is inconsistent or contains a native original. Repair the definition before modifying it.");members[item]=loaded;}
         var bonuses=await WorldDrops.Query(db,null,$"SELECT ID FROM item_set_spell WHERE ItemSetID={id}");var scope=new SetCreationScope(id,members.ToDictionary(p=>p.Key,p=>p.Value.SourceScope),bonuses.Select(r=>int.Parse(r["ID"]!)).Distinct().ToArray(),new([]));
         var expected=await SetCreation.Capture(db,null,scope);
         if(HistoryActions.Canonical(new(new(){["set"]=rows}))!=HistoryActions.Canonical(new(new(){["set"]=expected.Tables["new_set"]})))throw new InvalidOperationException("The set changed while loading. Reopen it.");
