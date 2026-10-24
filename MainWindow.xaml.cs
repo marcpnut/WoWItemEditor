@@ -8,12 +8,16 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Documents;
+using System.Text.RegularExpressions;
 namespace AnoWowItemEditor;
 
 public partial class MainWindow : Window
 {
     private List<CatalogItem> items = [];
     private ICollectionView? view;
+    private TooltipData tooltipData = new();
+    private Dictionary<int,CatalogItem> catalogById = [];
     private readonly bool verify;
     private readonly DispatcherTimer filterTimer = new() { Interval=TimeSpan.FromMilliseconds(180) };
     public MainWindow(bool verify=false)
@@ -35,6 +39,8 @@ public partial class MainWindow : Window
         {
             var result=await new CatalogRepository().LoadAsync();
             items=result.Items;
+            tooltipData=result.Tooltips;
+            catalogById=items.ToDictionary(i=>i.Id);
             view=CollectionViewSource.GetDefaultView(items);
             ItemsGrid.ItemsSource=view;
             ApplyFilters();
@@ -95,24 +101,23 @@ public partial class MainWindow : Window
         TooltipPanel.Children.Clear(); SourceLabel.Text="";
         void Line(string text,string color="#FFFFFF",double size=13,bool bold=false) => TooltipPanel.Children.Add(new TextBlock { Text=text, Foreground=(Brush)new BrushConverter().ConvertFromString(color)!, FontSize=size, FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap, Margin=new Thickness(0,0,0,5) });
         if(item is null) { Line("Select an item","#70B8FF",18); Line("Its tooltip will appear here.","#9299A5"); return; }
-        var title=new TextBlock { Text=item.Name, Foreground=item.NameBrush,FontSize=20, FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,9) }; TooltipPanel.Children.Add(title);
-        Line(item.QualityName,"#9D9D9D",12);
-        Line($"Item Level {item.ItemLevel}","#FFD100");
-        string binding=item.Number("Bonding") switch { 1=>"Binds when picked up",2=>"Binds when equipped",3=>"Binds when used",4 or 5=>"Quest item",_=>"" }; if(binding.Length>0) Line(binding);
-        if(item.Slot>0) Line(item.SlotName);
-        Line(item.TypeName,"#B7BDC8",12);
-        if(item.Number("MaxCount")==1) Line("Unique");
-        if(item.Number("ContainerSlots")>0) Line($"{item.Number("ContainerSlots")} Slot Bag");
-        var stats=new Dictionary<int,string> { [0]="Mana",[1]="Health",[3]="Agility",[4]="Strength",[5]="Intellect",[6]="Spirit",[7]="Stamina",[12]="Defense rating",[13]="Dodge rating",[14]="Parry rating",[31]="Hit rating",[32]="Critical strike rating",[36]="Haste rating",[38]="Attack power",[40]="Versatility",[45]="Spell power",[49]="Mastery" };
-        bool hasAllocation=false;
-        for(int i=1;i<=10;i++)
-        { int stat=item.Number("StatModifierBonusStat"+i),value=item.Number("StatPercentEditor"+i); if(stat<0||value<=0) continue; if(!hasAllocation) Line(" ",size:4); hasAllocation=true; Line($"{stats.GetValueOrDefault(stat)??$"Stat {stat}"}: allocation {value:N0}","#1EFF00"); }
-        if(hasAllocation) Line("Stat allocations shown; combat amounts require client scaling.","#9299A5",11);
-        if(item.RequiredLevel>0) Line($"Requires Level {item.RequiredLevel}");
-        if(item.Number("ItemSet")>0) Line($"Item set: {item.Number("ItemSet")}","#FFD100");
-        if(item.Text("Description").Length>0) Line("“"+item.Text("Description")+"”","#FFD100");
-        long.TryParse(item.Text("SellPrice"),out long price); if(price>0) Line($"Sell Price: {price/10000}g {price/100%100}s {price%100}c","#DBDEE1",12);
-        SourceLabel.Text=$"Item ID {item.Id}\n{item.Source}";
+        foreach(var line in ItemTooltip.Build(item,tooltipData,catalogById)) TooltipPanel.Children.Add(RenderLine(line));
+        SourceLabel.Text=$"Item ID {item.Id} · {item.Source}";
+        PreviewScroll.ScrollToTop();
+    }
+    private static FrameworkElement RenderLine(TooltipLine line)
+    {
+        TextBlock Text(string value) {
+            var block=new TextBlock { Foreground=(Brush)new BrushConverter().ConvertFromString(line.Color)!, FontSize=line.Size, FontWeight=line.Bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap };
+            foreach(string part in Regex.Split(value,@"(\[[^\]]+\])"))
+                block.Inlines.Add(new Run(part) { Foreground=part.StartsWith('[')?new SolidColorBrush(Color.FromRgb(112,184,255)):block.Foreground });
+            return block;
+        }
+        var grid=new Grid { Margin=new Thickness(line.Indent,0,0,line.Text.Length==0?4:3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
+        grid.Children.Add(Text(line.Text));
+        if(line.Right is not null) { grid.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto }); var right=Text(line.Right);right.Margin=new Thickness(10,0,0,0);Grid.SetColumn(right,1);grid.Children.Add(right); }
+        return grid;
     }
     private async Task VerifyAndRender(CatalogResult result)
     {
@@ -120,22 +125,47 @@ public partial class MainWindow : Window
         Check(result.Items.Count>1000,"Full real catalog loaded");
         Check(result.Items.Select(i=>i.Id).Distinct().Count()==result.Items.Count,"One effective row per item ID");
         Check(result.Items.Count(i=>i.Overridden)==result.Overrides,"Active MariaDB overrides applied");
-        var sample=items.FirstOrDefault(i=>i.Id==22476)??items[0];
+        var sample=items.First(i=>i.Id==22416);
+        var dreadnaught=tooltipData.Sets[sample.Number("ItemSet")];
+        Check(dreadnaught.Members.Length==9&&dreadnaught.Members.Contains(23059),"Dreadnaught includes nine pieces and its ring");
+        Check(dreadnaught.Bonuses.Select(b=>b.Pieces).SequenceEqual(new[]{2,4,6,8}),"Dreadnaught bonus thresholds");
+        var tooltip=ItemTooltip.Build(sample,tooltipData,catalogById);
+        string tooltipText=string.Join("\n",tooltip.Select(l=>l.Text+(l.Right is null?"":"    "+l.Right)));
+        Check(tooltipText.Contains("+[scales] Strength")&&tooltipText.Contains("[scales] Armor")&&!tooltipText.Contains("allocation"),"Scaled stats are marked rather than invented");
+        Check(tooltipText.Contains("Dreadnaught's Battlegear (0/9)")&&tooltipText.Contains("Ring of the Dreadnaught"),"Set membership and inactive count rendered");
+        Check(tooltipText.Contains("Revenge ability by 75.")&&tooltipText.Contains("Shield Slam by 5%."),"Fixed spell amounts resolved from this build");
+        Check(!tooltipText.Contains('$'),"No raw spell tokens in Dreadnaught tooltip");
+        var synthetic=new TooltipData();
+        synthetic.Effects[(1,0)]=new() { ["EffectBasePointsF"]="75",["Coefficient"]="1" };
+        Check(SpellText.Resolve("Increases by $s1.",1,synthetic)=="Increases by [scales].","Scaling effect is not mistaken for a fixed value");
+        synthetic.Effects[(2,0)]=new() { ["EffectBasePointsF"]="160" };
+        Check(SpellText.Resolve("Healing by $2s1.",1,synthetic)=="Healing by 160.","Referenced spell effect resolved");
+        Check(SpellText.Resolve("Value $9s2.",1,synthetic).Contains("[value unavailable]"),"Missing spell data remains explicit");
+        Check(tooltip.Where(l=>l.Text.StartsWith("(2) Set:")||l.Text.StartsWith("(8) Set:")).All(l=>l.Color==ItemTooltip.Gray),"Set bonuses are inactive without character equipment");
+        var ring=ItemTooltip.Build(catalogById[23059],tooltipData,catalogById);
+        Check(!ring.Any(l=>l.Text.EndsWith(" Armor")||l.Text.StartsWith("Durability")),"Ring does not gain invented armor or durability");
+        foreach(var entry in items)Check(ItemTooltip.Build(entry,tooltipData,catalogById).Count>0,$"Tooltip renders for item {entry.Id}");
         Check(Matches(sample,sample.Id.ToString(),-1,-1,-1,null,null),"ID search");
         Check(Matches(sample,sample.Name.ToUpperInvariant(),sample.Quality,sample.Slot,sample.ClassId,sample.RequiredLevel,sample.RequiredLevel),"Combined filters and case-insensitive search");
         Check(!Matches(sample,"",-1,-1,-1,sample.RequiredLevel+1,null),"Level exclusion");
-        Search.Text="Bonescythe"; ApplyFilters();
+        Search.Text="Dreadnaught"; ApplyFilters();
         ItemsGrid.SelectedItem=sample; ItemsGrid.ScrollIntoView(sample);
         await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);
         UpdateLayout();
         Directory.CreateDirectory("artifacts");
+        await File.WriteAllTextAsync("artifacts/dreadnaught-tooltip.txt",tooltipText);
+        var fullTooltip=new StackPanel();foreach(var line in tooltip)fullTooltip.Children.Add(RenderLine(line));
+        var fullBorder=new Border { Background=new SolidColorBrush(Color.FromRgb(16,17,27)),BorderBrush=new SolidColorBrush(Color.FromRgb(97,103,129)),BorderThickness=new Thickness(1),Padding=new Thickness(20),CornerRadius=new CornerRadius(6),Child=fullTooltip,Width=390 };
+        fullBorder.Measure(new Size(390,double.PositiveInfinity));fullBorder.Arrange(new Rect(new Point(),fullBorder.DesiredSize));fullBorder.UpdateLayout();
+        var fullBitmap=new RenderTargetBitmap(390,(int)Math.Ceiling(fullBorder.ActualHeight),96,96,PixelFormats.Pbgra32);fullBitmap.Render(fullBorder);
+        var fullEncoder=new PngBitmapEncoder();fullEncoder.Frames.Add(BitmapFrame.Create(fullBitmap));using(var output=File.Create("artifacts/dreadnaught-tooltip.png"))fullEncoder.Save(output);
         var content=(FrameworkElement)Content;
         var bitmap=new RenderTargetBitmap((int)content.ActualWidth,(int)content.ActualHeight,96,96,PixelFormats.Pbgra32); bitmap.Render(content);
         var encoder=new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using(var file=File.Create("artifacts/catalog-preview.png")) encoder.Save(file);
         ClearClick(this,new RoutedEventArgs()); Search.Text="__no_item_matches_83729__"; ApplyFilters(); Check(view!.IsEmpty&&EmptyMessage.Visibility==Visibility.Visible,"Empty search state");
         MinLevel.Text="-1"; ApplyFilters(); Check(FilterError.Visibility==Visibility.Visible,"Invalid level feedback");
         ClearClick(this,new RoutedEventArgs());
-        await File.WriteAllTextAsync("artifacts/verification.json",JsonSerializer.Serialize(new { items=items.Count,activeOverrides=result.Overrides,sample=new { sample.Id,sample.Name,sample.RequiredLevel,sample.Source },checks="Catalog, merge uniqueness, source counts, search, combined filters, level range, empty state, invalid range, WPF render passed" },new JsonSerializerOptions { WriteIndented=true }));
+        await File.WriteAllTextAsync("artifacts/verification.json",JsonSerializer.Serialize(new { items=items.Count,activeOverrides=result.Overrides,sample=new { sample.Id,sample.Name,sample.RequiredLevel,sample.Source },set=new { dreadnaught.Name,pieces=dreadnaught.Members.Length,bonuses=dreadnaught.Bonuses.Select(b=>new{b.Pieces,b.SpellId,text=tooltipData.SpellDescription(b.SpellId)}) },checks="Catalog, filters, validation, nine-piece Dreadnaught set, bonus thresholds, fixed and referenced spell amounts, scaling markers, missing effect fallback, inactive bonuses, WPF renders passed" },new JsonSerializerOptions { WriteIndented=true }));
         Close();
     }
 }

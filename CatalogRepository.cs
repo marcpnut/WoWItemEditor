@@ -7,7 +7,7 @@ using DBCD.Providers;
 using MySqlConnector;
 namespace AnoWowItemEditor;
 
-public sealed record CatalogResult(List<CatalogItem> Items, int Overrides, string Server);
+public sealed record CatalogResult(List<CatalogItem> Items, int Overrides, string Server, TooltipData Tooltips);
 public sealed class CatalogRepository
 {
     internal const string Db2Folder = @"C:\AnoCore\AnoCore-Server\data\dbc\enUS";
@@ -52,7 +52,9 @@ public sealed class CatalogRepository
             var seen=new HashSet<int>();
             while(await rows.ReadAsync()) { int id=Convert.ToInt32(rows["ID"]); if(!seen.Add(id)||!items.TryGetValue(id,out var item)) continue; if(!item.Fields.ContainsKey("ClassID")) { item.Fields["ClassID"]=Value(rows["ClassID"]); item.Fields["SubclassID"]=Value(rows["SubclassID"]); } }
         }
-        return new(items.Values.Where(i=>i.Text("Display").Length>0 || i.Overridden).OrderBy(i=>i.Name,StringComparer.OrdinalIgnoreCase).ToList(),applied.Count,login.Server);
+        var catalog=items.Values.Where(i=>i.Text("Display").Length>0 || i.Overridden).OrderBy(i=>i.Name,StringComparer.OrdinalIgnoreCase).ToList();
+        var tooltips=await TooltipData.LoadAsync(db,catalog);
+        return new(catalog,applied.Count,login.Server,tooltips);
     }
     private static string Value(object? value) => value is null or DBNull ? "" : Convert.ToString(value,CultureInfo.InvariantCulture) ?? "";
     private static Dictionary<int,CatalogItem> LoadBaseline()
