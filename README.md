@@ -14,6 +14,10 @@ Before editing, make complete, restorable backups of your world, hotfix and char
 
 [Edit or duplicate items](docs/guides/items.md) · [Create and modify gear sets](docs/guides/gear-sets.md) · [Configure weapon procs](docs/guides/weapon-procs.md) · [Recover active edits after an upgrade](docs/guides/active-change-recovery.md)
 
+## Quests (untested)
+
+Create and edit quests, copy existing quest-giving NPCs, place them using a saved character location, and configure objectives and rewards. **Quest functionality is untested in WoW.** Verify NPC placement, the ! marker, quest acceptance, objectives and rewards on a test server. See the [quest creator guide (untested)](docs/guides/quest-creator-local.md).
+
 ## Screenshots
 
 Item editing with current and draft tooltip comparisons:

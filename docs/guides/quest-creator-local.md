@@ -1,10 +1,10 @@
-# Quest creator and editor — local preview
+# Quest creator and editor (untested)
 
-These features are local previews and have not been published to GitHub. Database edits can stop or damage a server. Back up all relevant databases and test on a separate server copy.
+**Quest creation and editing (untested): end-to-end behavior has not been verified in WoW.** Database verification does not replace in-game testing. Database edits can stop or damage a server. Back up all relevant databases and test on a separate server copy.
 
 ## Create a quest
 
-1. Open **Quest creator (local)**. Search the saved list of normal quest-giving NPCs and filter by named faction. Inspect the textured 3D model before copying it: drag to rotate, Shift-drag for free rotation, wheel to zoom, or open the larger view. Only the copied NPC's name is editable; its appearance and faction are inherited.
+1. Open **Quest creator (untested)**. Search the saved list of normal quest-giving NPCs and filter by named faction. Inspect the textured 3D model before copying it: drag to rotate, Shift-drag for free rotation, wheel to zoom, or open the larger view. Only the copied NPC's name is editable; its appearance and faction are inherited.
 2. Log into WoW with a character. Stand on solid outdoor ground exactly where the NPC should be, face the desired direction, then **log out to character selection**. Choose that character, confirm the instructions and capture its saved location. Stay logged out until saving. Capture expires after 30 minutes; instance, taxi and transport positions are rejected. Ground height must be verified in game.
 3. Open **Quest definition** and fill the shared authoring form:
    - **Story & dialogue:** title, instructions, offer text, incomplete dialogue, quest-log completion text, reward dialogue, optional area text. `$N` inserts player name, `$C` class, `$R` race and `$B` a line break. Example: `Welcome, $N!$BWill you help me?`
