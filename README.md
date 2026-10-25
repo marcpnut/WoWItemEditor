@@ -4,6 +4,12 @@ Windows desktop editor for compatible World of Warcraft Classic 1.60.1 server da
 
 [Download the Windows preview](https://github.com/marcpnut/WoWItemEditor/releases) · [Folder guide](docs/ARCHITECTURE.md)
 
+## Warning: database edits can brick your server
+
+**Use at your own risk. Modifying MariaDB data with this application can brick your server: invalid or incompatible changes may cause crashes, prevent startup, corrupt gameplay data, or make the server unusable until a backup is restored.** Validation and editor history cannot guarantee that every change is safe, and the editor's history database is not a full server backup.
+
+Before editing, make complete, restorable backups of your world, hotfix and character databases and any other databases your server uses. Keep a known-good server configuration and game-data backup. Test changes on a separate server/database copy before using them on a live server, and confirm you know how to restore your backups. You are responsible for the changes you apply.
+
 ## Editing guides
 
 [Edit or duplicate items](docs/guides/items.md) · [Create and modify gear sets](docs/guides/gear-sets.md) · [Configure weapon procs](docs/guides/weapon-procs.md)
