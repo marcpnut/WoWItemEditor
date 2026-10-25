@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ContentChoice(int Id,string Name){public string Label=>$"{Name} · {Id}";public override string ToString()=>Label;}
 internal sealed class ContentEditorWindow : Window

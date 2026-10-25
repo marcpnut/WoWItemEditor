@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed record SetBonus(int Pieces, int SpellId, int Specialization,int Trait=0);
 public sealed record ItemSetInfo(int Id, string Name, int[] Members, SetBonus[] Bonuses,int Flags=0,int RequiredSkill=0,int RequiredSkillRank=0);

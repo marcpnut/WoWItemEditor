@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record StaticItemMesh(Model3DGroup Model,int Triangles,int Textures,string Note);
 internal static class StaticItemModel

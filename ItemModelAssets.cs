@@ -1,7 +1,7 @@
 using System.IO;
 using DBCD.Providers;
 using TACTSharp;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ItemModelPart(int Model,int[] Textures,int Component=0);
 internal sealed record ItemModelAppearance(int Appearance,int Display,ItemModelPart[] Parts,string Detail)
@@ -55,11 +55,12 @@ internal sealed class ItemModelAssets
     }
     private void LoadClient(string? folder)
     {
-        if(folder is null&&ClientFolder.Length==0){string preferences=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AnoWowItemEditor","model-viewer.json");if(File.Exists(preferences))try{folder=System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,string>>(File.ReadAllText(preferences))?.GetValueOrDefault("ClientFolder");}catch(System.Text.Json.JsonException){}}folder=Path.GetFullPath(folder??(ClientFolder.Length>0?ClientFolder:DefaultClient));var buildFile=new FileInfo(Path.Combine(folder,".build.info"));string stamp=buildFile.Exists?$"{buildFile.Length}:{buildFile.LastWriteTimeUtc.Ticks}":"missing";if(ClientFolder==folder&&buildStamp==stamp)return;
+        if(folder is null&&ClientFolder.Length==0&&AppSettings.Current.ClientFolder.Length>0)folder=AppSettings.Current.ClientFolder;
+        if(folder is null&&ClientFolder.Length==0){string preferences=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"WoWItemEditor","model-viewer.json");if(File.Exists(preferences))try{folder=System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,string>>(File.ReadAllText(preferences))?.GetValueOrDefault("ClientFolder");}catch(System.Text.Json.JsonException){}}folder=Path.GetFullPath(folder??(ClientFolder.Length>0?ClientFolder:DefaultClient));var buildFile=new FileInfo(Path.Combine(folder,".build.info"));string stamp=buildFile.Exists?$"{buildFile.Length}:{buildFile.LastWriteTimeUtc.Ticks}":"missing";if(ClientFolder==folder&&buildStamp==stamp)return;
         if(!File.Exists(Path.Combine(folder,".build.info")))throw new InvalidOperationException("Choose the WoW installation root containing .build.info and Data.");
         var lines=File.ReadAllLines(Path.Combine(folder,".build.info"));var names=lines[0].Split('|').Select(s=>s.Split('!')[0]).ToArray();string Field(string[] row,string name)=>row[Array.IndexOf(names,name)];var rows=lines.Skip(1).Where(s=>!string.IsNullOrWhiteSpace(s)).Select(s=>s.Split('|')).ToArray();var selected=rows.FirstOrDefault(r=>Field(r,"Product")=="wow_classic_beta"&&Field(r,"Active")=="1")??throw new InvalidOperationException("The selected client has no active Classic Beta build. Choose the client matching this server.");
         string version=Field(selected,"Version");if(!version.StartsWith("1.60.1.",StringComparison.Ordinal))throw new InvalidOperationException($"Client {version} does not match the server's 1.60.1 appearance layout.");
-        Settings.LogLevel=TSLogLevel.Off;var next=new BuildInstance();next.Settings.BaseDir=folder;next.Settings.Product="wow_classic_beta";next.Settings.CacheDir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AnoWowItemEditor","ModelCache");Directory.CreateDirectory(next.Settings.CacheDir);next.Settings.TryCDN=true;next.Settings.ListfileFallback=false;next.cdn.ProductDirectory=Field(selected,"CDN Path");next.LoadConfigs(Field(selected,"Build Key"),Field(selected,"CDN Key"));next.Load();build=next;ClientFolder=folder;Version=version;buildStamp=stamp;
+        Settings.LogLevel=TSLogLevel.Off;var next=new BuildInstance();next.Settings.BaseDir=folder;next.Settings.Product="wow_classic_beta";next.Settings.CacheDir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"WoWItemEditor","ModelCache");Directory.CreateDirectory(next.Settings.CacheDir);next.Settings.TryCDN=AppSettings.Current.AllowAssetDownloads;next.Settings.ListfileFallback=false;next.cdn.ProductDirectory=Field(selected,"CDN Path");next.LoadConfigs(Field(selected,"Build Key"),Field(selected,"CDN Key"));next.Load();build=next;ClientFolder=folder;Version=version;buildStamp=stamp;
     }
     internal async Task<byte[]> Read(int id,string? identity=null)
     {

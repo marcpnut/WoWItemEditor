@@ -1,4 +1,4 @@
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 internal static class ModelCharacterRepository
 {
     internal static async Task<ModelCharacter> Load(CharacterInfo character)

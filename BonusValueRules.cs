@@ -1,5 +1,5 @@
 using System.Globalization;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record BonusValueRule(bool Supported,string Meaning,string Unit,decimal Min,decimal Max,string Reason)
 {

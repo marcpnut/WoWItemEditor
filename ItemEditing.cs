@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ItemColumn(string Name,string Type,bool Nullable,string? Default);
 internal sealed record ItemEditSession(CatalogItem Current,CatalogItem? Native,Dictionary<string,string> Identity,Dictionary<string,string> NativeIdentity,ItemSnapshot Expected,string Fingerprint,List<ItemColumn> Columns,int Build,int IdentityBuild)
@@ -25,7 +25,7 @@ internal static class ItemEditing
         });
         using var ownedDb=connection is null?await DatabaseConnection.OpenAsync(CatalogRepository.Database):null;var db=connection??ownedDb!;
         using var ownedTx=transaction is null?await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead):null;var tx=transaction??ownedTx!;
-        var snapshot=await HistoryActions.CaptureAsync(db,tx,id);bool managedDrops=false;if((await WorldDrops.Query(db,tx,"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='anocore_studio_backup' AND TABLE_NAME='item_editor_world_drops'")).Count>0){managedDrops=(await WorldDrops.Query(db,tx,$"SELECT ItemId FROM {WorldDrops.Metadata} WHERE ItemId={id}")).Count>0;if(managedDrops)foreach(var p in await WorldDrops.Capture(db,tx,new([id])))snapshot.Tables[p.Key]=p.Value;}
+        var snapshot=await HistoryActions.CaptureAsync(db,tx,id);bool managedDrops=false;if((await WorldDrops.Query(db,tx,$"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='{AppSettings.Current.BackupDatabase}' AND TABLE_NAME='item_editor_world_drops'")).Count>0){managedDrops=(await WorldDrops.Query(db,tx,$"SELECT ItemId FROM {WorldDrops.Metadata} WHERE ItemId={id}")).Count>0;if(managedDrops)foreach(var p in await WorldDrops.Capture(db,tx,new([id])))snapshot.Tables[p.Key]=p.Value;}
         var sparse=await HotfixReader.LoadAsync(db,"item_sparse",TooltipData.Hash("ItemSparse"),tx);var identity=await HotfixReader.LoadAsync(db,"item",TooltipData.Hash("Item"),tx);
         if(sparse.Registrations.GetValueOrDefault(id)?.Status==2)throw new InvalidOperationException("This item was removed after the catalog loaded. Refresh the catalog.");
         var payload=sparse.ActiveRows.GetValueOrDefault(id);var fields=HotfixReader.Merge(native.Sparse?.Fields,payload??new Dictionary<string,string>());
@@ -92,7 +92,7 @@ internal static class ItemEditing
         using(var cmd=new MySqlCommand($"INSERT INTO {ContentEditing.Operations}(OperationId,Kind,EntityId,Name,IsActive,IsHidden,Version,BeforeJson,AfterJson,ExpectedJson,ScopeJson,Fingerprint,RecordedUtc) VALUES(@op,'Item',@id,@name,1,0,1,@before,@after,@after,@scope,@fingerprint,UTC_TIMESTAMP(6))",db,tx)){
             cmd.Parameters.AddWithValue("@op",op);cmd.Parameters.AddWithValue("@id",id);cmd.Parameters.AddWithValue("@name",draft.Name);cmd.Parameters.AddWithValue("@before",HistoryActions.Serialize(before));cmd.Parameters.AddWithValue("@after",HistoryActions.Serialize(after));cmd.Parameters.AddWithValue("@scope",JsonSerializer.Serialize(scope));cmd.Parameters.AddWithValue("@fingerprint",session.Fingerprint);await cmd.ExecuteNonQueryAsync();
         }
-        using(var visible=new MySqlCommand("DELETE FROM anocore_studio_backup.item_editor_hidden_history WHERE ItemId=@id",db,tx)){visible.Parameters.AddWithValue("@id",id);await visible.ExecuteNonQueryAsync();}
+        using(var visible=new MySqlCommand($"DELETE FROM {AppSettings.Current.BackupDatabase}.item_editor_hidden_history WHERE ItemId=@id",db,tx)){visible.Parameters.AddWithValue("@id",id);await visible.ExecuteNonQueryAsync();}
         await ContentEditing.Audit(db,tx,scope,"Edit item",draft.Name,op,before,after);return op;
     }
 }

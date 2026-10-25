@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record DropCreature(int Entry,string Name,int Min,int Max,int Loot,int Rank,ulong NpcFlags,int Type,uint Extra,bool Civilian,bool Scaling);
 internal sealed record DropSpawn(ulong Guid,int Entry,int Map,int Zone,double X,double Y,string Script);
@@ -28,15 +28,15 @@ internal sealed class WorldDropCatalog
     internal string Fingerprint="";
     internal string BossFingerprint="";
     internal List<InstanceBoss> Bosses=[];
-    internal const string MapFolder=@"C:\AnoCore\AnoCore-Server\data\maps";
+    internal static string MapFolder=>AppSettings.Current.MapFolder;
     internal static async Task<WorldDropCatalog> LoadAsync(MySqlConnection? connection=null,MySqlTransaction? tx=null)
     {
-        using var owned=connection is null?await DatabaseConnection.OpenAsync("foreverclassic_world"):null;var db=connection??owned!;var result=new WorldDropCatalog();var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
+        using var owned=connection is null?await DatabaseConnection.OpenAsync($"{AppSettings.Current.WorldDatabase}"):null;var db=connection??owned!;var result=new WorldDropCatalog();var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
         result.Areas=await Task.Run(()=>TooltipData.LoadTable(reader,"AreaTable"));result.Maps=await Task.Run(()=>TooltipData.LoadTable(reader,"Map"));
         var raw=new Dictionary<string,List<Dictionary<string,string?>>>();
-        raw["templates"]=await WorldDrops.Query(db,tx,"SELECT entry,name,minlevel,maxlevel,lootid,rank,npcflag,type,flags_extra,Civilian,ScriptName FROM foreverclassic_world.creature_template ORDER BY entry");
-        raw["spawns"]=await WorldDrops.Query(db,tx,"SELECT guid,id,map,zoneId,position_x,position_y,ScriptName FROM foreverclassic_world.creature ORDER BY guid");
-        raw["scaling"]=await WorldDrops.Query(db,tx,"SELECT * FROM foreverclassic_world.creature_template_scaling ORDER BY Entry,DifficultyID");
+        raw["templates"]=await WorldDrops.Query(db,tx,$"SELECT entry,name,minlevel,maxlevel,lootid,rank,npcflag,type,flags_extra,Civilian,ScriptName FROM {AppSettings.Current.WorldDatabase}.creature_template ORDER BY entry");
+        raw["spawns"]=await WorldDrops.Query(db,tx,$"SELECT guid,id,map,zoneId,position_x,position_y,ScriptName FROM {AppSettings.Current.WorldDatabase}.creature ORDER BY guid");
+        raw["scaling"]=await WorldDrops.Query(db,tx,$"SELECT * FROM {AppSettings.Current.WorldDatabase}.creature_template_scaling ORDER BY Entry,DifficultyID");
         var scaling=raw["scaling"].Where(r=>N(r,"ContentTuningID")!=0||N(r,"LevelScalingDeltaMin")!=0||N(r,"LevelScalingDeltaMax")!=0).Select(r=>N(r,"Entry")).ToHashSet();
         foreach(var r in raw["templates"])result.Creatures.Add(new(N(r,"entry"),r["name"]??"",N(r,"minlevel"),N(r,"maxlevel"),N(r,"lootid"),N(r,"rank"),ulong.Parse(r["npcflag"]!),N(r,"type"),uint.Parse(r["flags_extra"]!),r["Civilian"]=="1"||r["Civilian"]=="True",scaling.Contains(N(r,"entry"))||!string.IsNullOrWhiteSpace(r["ScriptName"])));
         foreach(var r in raw["spawns"])result.Spawns.Add(new(ulong.Parse(r["guid"]!),N(r,"id"),N(r,"map"),N(r,"zoneId"),double.Parse(r["position_x"]!,CultureInfo.InvariantCulture),double.Parse(r["position_y"]!,CultureInfo.InvariantCulture),r["ScriptName"]??""));
@@ -68,31 +68,32 @@ internal sealed class WorldDropCatalog
 }
 internal static class WorldDrops
 {
-    internal const string Metadata="anocore_studio_backup.item_editor_world_drops";
+    internal static string Metadata => $"{AppSettings.Current.BackupDatabase}.item_editor_world_drops";
     internal static string Ids(IEnumerable<int> values)=>string.Join(',',values.Distinct().DefaultIfEmpty(-1));
     internal static async Task<List<Dictionary<string,string?>>> Query(MySqlConnection db,MySqlTransaction? tx,string sql)
     {
         using var cmd=new MySqlCommand(sql,db,tx);using var r=await cmd.ExecuteReaderAsync();var rows=new List<Dictionary<string,string?>>();while(await r.ReadAsync()){var row=new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase);for(int n=0;n<r.FieldCount;n++)row[r.GetName(n)]=r.IsDBNull(n)?null:r.GetValue(n) is bool flag?(flag?"1":"0"):r.GetValue(n) is DateTime date?date.ToString("yyyy-MM-dd HH:mm:ss.ffffff",CultureInfo.InvariantCulture):Convert.ToString(r.GetValue(n),CultureInfo.InvariantCulture);rows.Add(row);}return rows;
     }
-    internal static async Task Initialize(MySqlConnection db)
+    internal static async Task Initialize(MySqlConnection db,EditorSettings? configuration=null)
     {
-        using var create=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {Metadata}(ItemId INT NOT NULL PRIMARY KEY,Chance DECIMAL(9,6) NOT NULL,PlanJson LONGTEXT NOT NULL,UpdatedUtc DATETIME(6) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db);await create.ExecuteNonQueryAsync();
+        var cfg=configuration??AppSettings.Current;string metadata=$"{cfg.BackupDatabase}.item_editor_world_drops";
+        using var create=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {metadata}(ItemId INT NOT NULL PRIMARY KEY,Chance DECIMAL(9,6) NOT NULL,PlanJson LONGTEXT NOT NULL,UpdatedUtc DATETIME(6) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db);await create.ExecuteNonQueryAsync();
     }
     internal static async Task<Dictionary<string,List<Dictionary<string,string?>>>> Capture(MySqlConnection db,MySqlTransaction? tx,WorldDropScope scope,bool locked=false)
     {
-        string ids=Ids(scope.Items),suffix=locked?" FOR UPDATE":"";return new(){["world_loot"]=await Query(db,tx,$"SELECT * FROM foreverclassic_world.creature_loot_template WHERE Item IN({ids}) AND Reference=0 ORDER BY Entry,Item"+suffix),["world_drop_policy"]=await Query(db,tx,$"SELECT * FROM {Metadata} WHERE ItemId IN({ids}) ORDER BY ItemId"+suffix)};
+        string ids=Ids(scope.Items),suffix=locked?" FOR UPDATE":"";return new(){["world_loot"]=await Query(db,tx,$"SELECT * FROM {AppSettings.Current.WorldDatabase}.creature_loot_template WHERE Item IN({ids}) AND Reference=0 ORDER BY Entry,Item"+suffix),["world_drop_policy"]=await Query(db,tx,$"SELECT * FROM {Metadata} WHERE ItemId IN({ids}) ORDER BY ItemId"+suffix)};
     }
     internal static async Task Apply(MySqlConnection db,MySqlTransaction tx,int item,DropPlan plan,string name)
     {
-        if(plan.Targets.Count==0)throw new InvalidOperationException($"No verified world-drop creatures fit {name} at levels {plan.Min}–{plan.Max}.");using(var engine=new MySqlCommand("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA='foreverclassic_world' AND TABLE_NAME='creature_loot_template'",db,tx))if(Convert.ToString(await engine.ExecuteScalarAsync())!="InnoDB")throw new InvalidOperationException("Creature loot must support transactions.");
-        using(var delete=new MySqlCommand("DELETE FROM foreverclassic_world.creature_loot_template WHERE Item=@id AND Reference=0",db,tx)){delete.Parameters.AddWithValue("@id",item);await delete.ExecuteNonQueryAsync();}
-        foreach(int loot in plan.Targets.Select(t=>t.Loot).Distinct()){using var cmd=new MySqlCommand("INSERT INTO foreverclassic_world.creature_loot_template(Entry,Item,Reference,Chance,QuestRequired,LootMode,GroupId,MinCount,MaxCount,Comment) VALUES(@entry,@item,0,@chance,0,1,0,1,1,@comment)",db,tx);cmd.Parameters.AddWithValue("@entry",loot);cmd.Parameters.AddWithValue("@item",item);cmd.Parameters.AddWithValue("@chance",plan.Chance);cmd.Parameters.AddWithValue("@comment",("AnoWoW set creator: "+name)[..Math.Min(255,("AnoWoW set creator: "+name).Length)]);await cmd.ExecuteNonQueryAsync();}
+        if(plan.Targets.Count==0)throw new InvalidOperationException($"No verified world-drop creatures fit {name} at levels {plan.Min}–{plan.Max}.");using(var engine=new MySqlCommand($"SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA='{AppSettings.Current.WorldDatabase}' AND TABLE_NAME='creature_loot_template'",db,tx))if(Convert.ToString(await engine.ExecuteScalarAsync())!="InnoDB")throw new InvalidOperationException("Creature loot must support transactions.");
+        using(var delete=new MySqlCommand($"DELETE FROM {AppSettings.Current.WorldDatabase}.creature_loot_template WHERE Item=@id AND Reference=0",db,tx)){delete.Parameters.AddWithValue("@id",item);await delete.ExecuteNonQueryAsync();}
+        foreach(int loot in plan.Targets.Select(t=>t.Loot).Distinct()){using var cmd=new MySqlCommand($"INSERT INTO {AppSettings.Current.WorldDatabase}.creature_loot_template(Entry,Item,Reference,Chance,QuestRequired,LootMode,GroupId,MinCount,MaxCount,Comment) VALUES(@entry,@item,0,@chance,0,1,0,1,1,@comment)",db,tx);cmd.Parameters.AddWithValue("@entry",loot);cmd.Parameters.AddWithValue("@item",item);cmd.Parameters.AddWithValue("@chance",plan.Chance);cmd.Parameters.AddWithValue("@comment",("WoWItemEditor set creator: "+name)[..Math.Min(255,("WoWItemEditor set creator: "+name).Length)]);await cmd.ExecuteNonQueryAsync();}
         using var policy=new MySqlCommand($"INSERT INTO {Metadata}(ItemId,Chance,PlanJson,UpdatedUtc) VALUES(@id,@chance,@plan,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE Chance=VALUES(Chance),PlanJson=VALUES(PlanJson),UpdatedUtc=VALUES(UpdatedUtc)",db,tx);policy.Parameters.AddWithValue("@id",item);policy.Parameters.AddWithValue("@chance",plan.Chance);policy.Parameters.AddWithValue("@plan",JsonSerializer.Serialize(plan));await policy.ExecuteNonQueryAsync();
     }
     internal static DropPlan Replan(WorldDropCatalog world,CatalogItem item,DropPlan plan)=>plan.Mode=="Boss"?BossDrops.Plan(world,item,plan.BossKeys??[],plan.Chance):world.Plan(item,plan.Chance);
     internal static async Task Restore(MySqlConnection db,MySqlTransaction tx,WorldDropScope scope,ItemSnapshot target)
     {
         if(target.Tables["world_loot"].Count>0&&target.Tables["world_drop_policy"].Count>0){var expected=target.Tables["world_drop_policy"].Select(r=>JsonSerializer.Deserialize<DropPlan>(r["PlanJson"]!)!).ToArray();var world=await WorldDropCatalog.LoadAsync(db,tx);if(expected.Length==0||expected.Any(p=>p.InputFingerprint!=(p.Mode=="Boss"?world.BossFingerprint:world.Fingerprint)))throw new InvalidOperationException("World-drop eligibility changed after this snapshot. Automatic loot restoration is blocked; review the current world data.");}
-        string ids=Ids(scope.Items);using(var cmd=new MySqlCommand($"DELETE FROM foreverclassic_world.creature_loot_template WHERE Item IN({ids}) AND Reference=0",db,tx))await cmd.ExecuteNonQueryAsync();using(var cmd=new MySqlCommand($"DELETE FROM {Metadata} WHERE ItemId IN({ids})",db,tx))await cmd.ExecuteNonQueryAsync();foreach(var r in target.Tables["world_loot"])await BonusSpells.WriteAsync(db,tx,"foreverclassic_world.creature_loot_template",r);foreach(var r in target.Tables["world_drop_policy"]){using var cmd=new MySqlCommand($"INSERT INTO {Metadata}(ItemId,Chance,PlanJson,UpdatedUtc) VALUES(@id,@c,@p,@utc)",db,tx);cmd.Parameters.AddWithValue("@id",r["ItemId"]);cmd.Parameters.AddWithValue("@c",r["Chance"]);cmd.Parameters.AddWithValue("@p",r["PlanJson"]);cmd.Parameters.AddWithValue("@utc",r["UpdatedUtc"]);await cmd.ExecuteNonQueryAsync();}
+        string ids=Ids(scope.Items);using(var cmd=new MySqlCommand($"DELETE FROM {AppSettings.Current.WorldDatabase}.creature_loot_template WHERE Item IN({ids}) AND Reference=0",db,tx))await cmd.ExecuteNonQueryAsync();using(var cmd=new MySqlCommand($"DELETE FROM {Metadata} WHERE ItemId IN({ids})",db,tx))await cmd.ExecuteNonQueryAsync();foreach(var r in target.Tables["world_loot"])await BonusSpells.WriteAsync(db,tx,$"{AppSettings.Current.WorldDatabase}.creature_loot_template",r);foreach(var r in target.Tables["world_drop_policy"]){using var cmd=new MySqlCommand($"INSERT INTO {Metadata}(ItemId,Chance,PlanJson,UpdatedUtc) VALUES(@id,@c,@p,@utc)",db,tx);cmd.Parameters.AddWithValue("@id",r["ItemId"]);cmd.Parameters.AddWithValue("@c",r["Chance"]);cmd.Parameters.AddWithValue("@p",r["PlanJson"]);cmd.Parameters.AddWithValue("@utc",r["UpdatedUtc"]);await cmd.ExecuteNonQueryAsync();}
     }
 }

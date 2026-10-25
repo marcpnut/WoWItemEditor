@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Windows.Media;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed record CharacterInfo(ulong Guid,string Name,int Level,int ClassId,bool Online,int Specialization)
 {
@@ -24,7 +24,7 @@ public sealed class CharacterItemRow
 }
 public static class CharacterRepository
 {
-    internal const string Database="foreverclassic_characters";
+    internal static string Database => $"{AppSettings.Current.CharacterDatabase}";
     public static async Task<List<CharacterInfo>> ListAsync()
     {
         using var db=await DatabaseConnection.OpenAsync(Database);

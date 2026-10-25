@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Windows.Media;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed class CatalogItem
 {

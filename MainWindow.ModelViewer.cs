@@ -1,6 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 public partial class MainWindow
 {
     private readonly ItemModelView itemModel=new(compact:true);

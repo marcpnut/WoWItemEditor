@@ -7,3 +7,16 @@ artifacts/
 *.log
 *.sql
 DBDCache/
+
+# Local settings, credentials and proprietary game/server data
+settings*.json
+*.secret
+.env
+.env.*
+*.pfx
+*.pem
+*.key
+data/
+Data/
+ModelCache/
+publish/

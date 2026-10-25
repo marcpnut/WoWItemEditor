@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Numerics;
 using System.Windows.Media.Media3D;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record CharacterPose(Matrix4x4[] Bones,Dictionary<int,Matrix3D> Attachments,int Animation,int AnimationFile,int DrivenBones);
 internal static class CharacterRig

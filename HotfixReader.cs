@@ -1,6 +1,6 @@
 using System.Globalization;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record HotfixRegistration(long Id,int RecordId,int Status,int Build);
 internal sealed record HotfixTable(List<Dictionary<string,string>> Rows,Dictionary<int,HotfixRegistration> Registrations)

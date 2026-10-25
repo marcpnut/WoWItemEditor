@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record BonusTable(string Sql,string Dbc,bool ParentSpell);
 internal sealed record BonusScope(int[] SpellIds,Dictionary<string,int[]> Records,int[] OwnedSpells,string Fingerprint,List<BonusTable> Tables,int[]? EditedEffects=null);
@@ -27,7 +27,7 @@ internal static class BonusSpells
     internal static async Task<BonusBlueprint> LoadAsync(int root)
     {
         using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);
-        var schemas=await Query(db,null,"SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='foreverclassic_hotfixes' AND COLUMN_NAME='SpellID' ORDER BY TABLE_NAME");
+        var schemas=await Query(db,null,$"SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='{AppSettings.Current.HotfixDatabase}' AND COLUMN_NAME='SpellID' ORDER BY TABLE_NAME");
         var tables=schemas.Select(r=>r["TABLE_NAME"]!).Where(n=>n.StartsWith("spell_")).Select(n=>new BonusTable(n,DbcName(n),true)).Where(t=>File.Exists(Path.Combine(CatalogRepository.Db2Folder,t.Dbc+".db2"))).Prepend(new("spell_name","SpellName",false)).ToList();
         var allNames=schemas.Select(r=>r["TABLE_NAME"]!).Where(n=>n.StartsWith("spell_")).ToHashSet();if(allNames.Except(tables.Select(t=>t.Sql)).Any())throw new InvalidOperationException("Some spell dependencies have no installed definition; isolated value editing is unavailable for this client layout.");
         string fingerprint=Fingerprint(tables);var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));
@@ -43,7 +43,7 @@ internal static class BonusSpells
         }
         if(ids.Any(id=>!texts.ContainsKey(id)))throw new InvalidOperationException("The full spell text for this bonus chain is unavailable; cloning is blocked.");
         foreach(var (table,column) in new[]{("spell_script_names","spell_id"),("spell_linked_spell","spell_trigger"),("spell_area","spell"),("spell_custom_attr","spell_id"),("spell_target_position","ID"),("spell_threat","entry")}){
-            if(!await HasColumn(db,tx,"foreverclassic_world",table,column))continue;var special=await Query(db,tx,$"SELECT * FROM foreverclassic_world.{table} WHERE ABS(`{column}`) IN({Ids(ids)})");if(special.Count>0)throw new InvalidOperationException($"This bonus uses {table}. A set-specific copy needs dedicated support for those server rules. Its original spell was preserved.");
+            if(!await HasColumn(db,tx,$"{AppSettings.Current.WorldDatabase}",table,column))continue;var special=await Query(db,tx,$"SELECT * FROM {AppSettings.Current.WorldDatabase}.{table} WHERE ABS(`{column}`) IN({Ids(ids)})");if(special.Count>0)throw new InvalidOperationException($"This bonus uses {table}. A set-specific copy needs dedicated support for those server rules. Its original spell was preserved.");
         }
         var rows=new Dictionary<string,List<Dictionary<string,string>>>();var max=new Dictionary<string,int>();
         foreach(var table in tables){
@@ -67,7 +67,7 @@ internal static class BonusSpells
             clauses.Add($"(TableHash={TooltipData.Hash(t.Dbc)} AND RecordId IN({Ids(ids.Concat(rows["bonus_"+t.Sql].Select(r=>int.Parse(r["ID"]!))))}))");
         }
         rows["bonus_blob"]=await Query(db,tx,$"SELECT * FROM hotfix_blob WHERE TableHash={TooltipData.Hash("Spell")} AND RecordId IN({Ids(scope.SpellIds)}) ORDER BY RecordId,locale,VerifiedBuild"+suffix);
-        rows["bonus_proc"]=await Query(db,tx,$"SELECT * FROM foreverclassic_world.spell_proc WHERE ABS(SpellId) IN({Ids(scope.SpellIds)}) ORDER BY SpellId"+suffix);
+        rows["bonus_proc"]=await Query(db,tx,$"SELECT * FROM {AppSettings.Current.WorldDatabase}.spell_proc WHERE ABS(SpellId) IN({Ids(scope.SpellIds)}) ORDER BY SpellId"+suffix);
         clauses.Add($"(TableHash={TooltipData.Hash("Spell")} AND RecordId IN({Ids(scope.SpellIds)}))");
         rows["bonus_registrations"]=await Query(db,tx,$"SELECT * FROM hotfix_data WHERE {string.Join(" OR ",clauses)} ORDER BY Id,UniqueId"+suffix);
         rows["bonus_external_sets"]=await Query(db,tx,$"SELECT * FROM item_set_spell WHERE SpellID IN({Ids(scope.OwnedSpells)}) ORDER BY ID,VerifiedBuild"+suffix);
@@ -97,11 +97,11 @@ internal static class BonusSpells
     internal static async Task<(int Root,BonusScope Scope)> AllocateAsync(MySqlConnection db,MySqlTransaction tx,BonusDraft draft,Dictionary<string,int> reserved)
     {
         Validate(draft);if(Fingerprint(draft.Source.Scope.Tables)!=draft.Source.Scope.Fingerprint||HistoryActions.Canonical(await CaptureAsync(db,tx,draft.Source.Scope,true))!=HistoryActions.Canonical(draft.Source.Expected))throw new InvalidOperationException("The source bonus spell changed after loading. Reopen its value editor.");
-        foreach(var table in draft.Source.Scope.Tables.Select(t=>"foreverclassic_hotfixes."+t.Sql).Concat(new[]{"foreverclassic_hotfixes.hotfix_blob","foreverclassic_world.spell_proc"})){
+        foreach(var table in draft.Source.Scope.Tables.Select(t=>$"{AppSettings.Current.HotfixDatabase}."+t.Sql).Concat(new[]{$"{AppSettings.Current.HotfixDatabase}.hotfix_blob",$"{AppSettings.Current.WorldDatabase}.spell_proc"})){
             var parts=table.Split('.');using var engine=new MySqlCommand("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=@s AND TABLE_NAME=@t",db,tx);engine.Parameters.AddWithValue("@s",parts[0]);engine.Parameters.AddWithValue("@t",parts[1]);if(!string.Equals(Convert.ToString(await engine.ExecuteScalarAsync()),"InnoDB",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException(table+" must support transactions before isolated bonus editing.");
         }
         int next=await NextId(db,tx,"spell_name","SpellName",draft.Source.MaxIds["spell_name"]);
-        using(var max=new MySqlCommand($"SELECT GREATEST(COALESCE((SELECT MAX(Id) FROM foreverclassic_world.serverside_spell),0),COALESCE((SELECT MAX(RecordId) FROM hotfix_blob WHERE TableHash={TooltipData.Hash("Spell")}),0))",db,tx))next=Math.Max(next,checked(Convert.ToInt32(await max.ExecuteScalarAsync())+1));
+        using(var max=new MySqlCommand($"SELECT GREATEST(COALESCE((SELECT MAX(Id) FROM {AppSettings.Current.WorldDatabase}.serverside_spell),0),COALESCE((SELECT MAX(RecordId) FROM hotfix_blob WHERE TableHash={TooltipData.Hash("Spell")}),0))",db,tx))next=Math.Max(next,checked(Convert.ToInt32(await max.ExecuteScalarAsync())+1));
         next=Math.Max(next,reserved.GetValueOrDefault("spell_name"));
         var map=draft.Source.Scope.SpellIds.Select((id,n)=>(id,target:checked(next+n))).ToDictionary(p=>p.id,p=>p.target);
         var records=draft.Source.Scope.Records.ToDictionary(p=>p.Key,p=>p.Value.ToList());
@@ -124,11 +124,11 @@ internal static class BonusSpells
         }
         foreach(var (old,id) in map){var text=RemapText(draft.Source.Texts[old],map);var bytes=SpellBlobs.Encode(text);using(var cmd=new MySqlCommand("INSERT INTO hotfix_blob(TableHash,RecordId,locale,`Blob`,LayoutHash,VerifiedBuild) VALUES(@hash,@id,'enUS',@bytes,@layout,0)",db,tx)){cmd.Parameters.AddWithValue("@hash",TooltipData.Hash("Spell"));cmd.Parameters.AddWithValue("@id",id);cmd.Parameters.AddWithValue("@bytes",bytes);cmd.Parameters.AddWithValue("@layout",SpellBlobs.LayoutHash());await cmd.ExecuteNonQueryAsync();}await RegisterAsync(db,tx,"Spell",id,1);}
         var procs=draft.Source.Expected.Tables["bonus_proc"];
-        foreach(var original in procs){var row=new Dictionary<string,string?>(original,StringComparer.OrdinalIgnoreCase);row["SpellId"]=map[Math.Abs(int.Parse(row["SpellId"]!))].ToString();await WriteAsync(db,tx,"foreverclassic_world.spell_proc",row);}
+        foreach(var original in procs){var row=new Dictionary<string,string?>(original,StringComparer.OrdinalIgnoreCase);row["SpellId"]=map[Math.Abs(int.Parse(row["SpellId"]!))].ToString();await WriteAsync(db,tx,$"{AppSettings.Current.WorldDatabase}.spell_proc",row);}
     }
     internal static async Task WriteAsync(MySqlConnection db,MySqlTransaction tx,string table,Dictionary<string,string?> values)
     {
-        string schema=table.StartsWith("foreverclassic_world.")?"foreverclassic_world":CatalogRepository.Database,name=table.Split('.').Last();
+        string schema=table.StartsWith($"{AppSettings.Current.WorldDatabase}.")?$"{AppSettings.Current.WorldDatabase}":CatalogRepository.Database,name=table.Split('.').Last();
         using var columns=new MySqlCommand("SELECT COLUMN_NAME,COLUMN_DEFAULT,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@s AND TABLE_NAME=@t ORDER BY ORDINAL_POSITION",db,tx);columns.Parameters.AddWithValue("@s",schema);columns.Parameters.AddWithValue("@t",name);var fields=new List<(string Name,string? Value)>();using(var r=await columns.ExecuteReaderAsync())while(await r.ReadAsync()){string key=r.GetString(0);string? value=values.GetValueOrDefault(key);if(value is null&&!values.ContainsKey(key)){value=r.IsDBNull(1)?null:r.GetString(1);if(value=="NULL")value=null;else value=value?.Trim('\'');if(value is null&&r.GetString(2)!="YES")throw new InvalidOperationException($"Unmapped spell field {name}.{key}; cloning blocked.");}fields.Add((key,value));}
         using var insert=new MySqlCommand($"INSERT INTO {table} ({string.Join(',',fields.Select(f=>$"`{f.Name}`"))}) VALUES({string.Join(',',fields.Select((_,n)=>"@v"+n))})",db,tx);for(int n=0;n<fields.Count;n++)insert.Parameters.AddWithValue("@v"+n,(object?)fields[n].Value??DBNull.Value);await insert.ExecuteNonQueryAsync();
     }
@@ -159,7 +159,7 @@ internal static class BonusSpells
         var blobs=target.Tables["bonus_blob"].Where(r=>scope.OwnedSpells.Contains(int.Parse(r["RecordId"]!))).ToList();
         foreach(var row in blobs){using var insert=new MySqlCommand("INSERT INTO hotfix_blob(TableHash,RecordId,locale,`Blob`,LayoutHash,VerifiedBuild) VALUES(@hash,@id,@locale,@blob,@layout,@build)",db,tx);insert.Parameters.AddWithValue("@hash",row["TableHash"]);insert.Parameters.AddWithValue("@id",row["RecordId"]);insert.Parameters.AddWithValue("@locale",row["locale"]);insert.Parameters.AddWithValue("@blob",row["Blob"] is {} hex?Convert.FromHexString(hex):DBNull.Value);insert.Parameters.AddWithValue("@layout",row["LayoutHash"]);insert.Parameters.AddWithValue("@build",row["VerifiedBuild"]);await insert.ExecuteNonQueryAsync();}
         foreach(int id in scope.OwnedSpells)await RegisterAsync(db,tx,"Spell",id,blobs.Any(r=>r["RecordId"]==id.ToString())?1:2);
-        using(var delete=new MySqlCommand($"DELETE FROM foreverclassic_world.spell_proc WHERE ABS(SpellId) IN({Ids(scope.OwnedSpells)})",db,tx))await delete.ExecuteNonQueryAsync();
-        foreach(var row in target.Tables["bonus_proc"].Where(r=>scope.OwnedSpells.Contains(Math.Abs(int.Parse(r["SpellId"]!)))))await WriteAsync(db,tx,"foreverclassic_world.spell_proc",row);
+        using(var delete=new MySqlCommand($"DELETE FROM {AppSettings.Current.WorldDatabase}.spell_proc WHERE ABS(SpellId) IN({Ids(scope.OwnedSpells)})",db,tx))await delete.ExecuteNonQueryAsync();
+        foreach(var row in target.Tables["bonus_proc"].Where(r=>scope.OwnedSpells.Contains(Math.Abs(int.Parse(r["SpellId"]!)))))await WriteAsync(db,tx,$"{AppSettings.Current.WorldDatabase}.spell_proc",row);
     }
 }

@@ -1,4 +1,4 @@
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record SetEquipPreview(CharacterSnapshot Before,CharacterSnapshot After,Dictionary<int,CatalogItem> Slots,List<string> Problems,List<string> Notes)
 {

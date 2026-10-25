@@ -3,7 +3,7 @@ using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ModelCharacter(int Race=1,int Sex=0,string Name="Outfit preview",Dictionary<int,int>? Choices=null,int ClassId=1);
 internal sealed record CharacterScene(StaticItemMesh Mesh,int BodyFile,int Equipped,int Applied,List<string> Notes){internal IReadOnlyDictionary<int,int> Customizations {get;init;}=new Dictionary<int,int>();internal object? TextureDiagnostics {get;init;}}

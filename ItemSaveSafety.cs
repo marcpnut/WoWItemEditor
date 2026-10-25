@@ -1,6 +1,6 @@
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal static class ItemSaveSafety
 {

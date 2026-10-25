@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 public partial class MainWindow
 {
     private async Task VerifyStartup()

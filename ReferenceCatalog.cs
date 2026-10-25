@@ -1,7 +1,7 @@
 using DBCD.Providers;
 using System.Globalization;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ReferenceEntry(int SpellId,int? EffectId,string Name,string Kind,string Trigger,string Description,string Details)
 {
@@ -37,8 +37,8 @@ internal sealed record ReferenceCatalog(List<ReferenceEntry> Spells,List<Referen
         for(int n=0;n<names.Length;n++)if(await HotfixHistory.HasTable(db,CatalogRepository.Database,sql[n]))await TooltipData.Overlay(db,sql[n],names[n],tables[names[n]]);
         await SpellBlobs.OverlayAsync(db,tables["Spell"]);
         tables["ServerProcRules"]=[];
-        if(await HotfixHistory.HasTable(db,"foreverclassic_world","spell_proc")){
-            using var cmd=new MySqlCommand("SELECT * FROM foreverclassic_world.spell_proc",db);using var r=await cmd.ExecuteReaderAsync();int index=0;
+        if(await HotfixHistory.HasTable(db,$"{AppSettings.Current.WorldDatabase}","spell_proc")){
+            using var cmd=new MySqlCommand($"SELECT * FROM {AppSettings.Current.WorldDatabase}.spell_proc",db);using var r=await cmd.ExecuteReaderAsync();int index=0;
             while(await r.ReadAsync()){var row=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);for(int n=0;n<r.FieldCount;n++)row[r.GetName(n)]=r.IsDBNull(n)?"":Convert.ToString(r.GetValue(n),CultureInfo.InvariantCulture)??"";tables["ServerProcRules"][index++]=row;}
         }
         return await Task.Run(()=>Build(tables));

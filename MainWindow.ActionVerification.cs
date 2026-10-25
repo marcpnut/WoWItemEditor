@@ -5,7 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public partial class MainWindow
 {
@@ -32,7 +32,7 @@ public partial class MainWindow
                         var retained=await HistoryActions.StateAsync(db,tx,entry.Id,entry.Build);
                         Assert(retained is {Active:false},"Revert stores an inactive archive");
                         await HistoryActions.SetHiddenCoreAsync(db,tx,entry with{Active=false,Managed=true},true);
-                        using(var hidden=new MySqlCommand("SELECT COUNT(*) FROM anocore_studio_backup.item_editor_hidden_history WHERE ItemId=@id AND PayloadBuild=@build",db,tx)){hidden.Parameters.AddWithValue("@id",entry.Id);hidden.Parameters.AddWithValue("@build",entry.Build);Assert(Convert.ToInt32(await hidden.ExecuteScalarAsync())==1,"Inactive entry removed from visible history");}
+                        using(var hidden=new MySqlCommand($"SELECT COUNT(*) FROM {AppSettings.Current.BackupDatabase}.item_editor_hidden_history WHERE ItemId=@id AND PayloadBuild=@build",db,tx)){hidden.Parameters.AddWithValue("@id",entry.Id);hidden.Parameters.AddWithValue("@build",entry.Build);Assert(Convert.ToInt32(await hidden.ExecuteScalarAsync())==1,"Inactive entry removed from visible history");}
                         await HistoryActions.SetHiddenCoreAsync(db,tx,entry with{Active=false,Managed=true,Hidden=true},false);
                         var reapply=await HistoryActions.PrepareCoreAsync(db,tx,entry with{Active=false,Managed=true},catalog.Originals);
                         Assert(HistoryActions.ReviewFields(reapply).Any(f=>f.Field=="RequiredLevel"&&f.Original=="60"&&f.Modified=="1"),"Reapply review values");
@@ -43,7 +43,7 @@ public partial class MainWindow
                         bool activeBlocked=false;try{await HistoryActions.SetHiddenCoreAsync(db,tx,entry,true);}catch(InvalidOperationException ex) when(ex.Message.StartsWith("Active overrides")){activeBlocked=true;}Assert(activeBlocked,"Active history removal is blocked");
                         foreach(string table in new[]{"item","item_effect","item_x_item_effect"})Assert(JsonSerializer.Serialize(initial.Tables[table])==JsonSerializer.Serialize(reapplied.After.Tables[table]),"Shared dependency preserved: "+table);
                         bool conflict=false;try{await HistoryActions.ApplyCoreAsync(db,tx,revert);}catch(InvalidOperationException ex) when(ex.Message.StartsWith("Conflict:")){conflict=true;}Assert(conflict,"Stale review is rejected");
-                        foreach(string schema in new[]{"foreverclassic_hotfixes.anocore_studio_changes","anocore_studio_backup.changes"})foreach(string id in events){using var check=new MySqlCommand($"SELECT COUNT(*) FROM {schema} WHERE ChangeId=@id",db,tx);check.Parameters.AddWithValue("@id",id);Assert(Convert.ToInt32(await check.ExecuteScalarAsync())==1,"Audit event and mirror saved together");}
+                        foreach(string schema in new[]{$"{AppSettings.Current.HotfixDatabase}.anocore_studio_changes",$"{AppSettings.Current.BackupDatabase}.changes"})foreach(string id in events){using var check=new MySqlCommand($"SELECT COUNT(*) FROM {schema} WHERE ChangeId=@id",db,tx);check.Parameters.AddWithValue("@id",id);Assert(Convert.ToInt32(await check.ExecuteScalarAsync())==1,"Audit event and mirror saved together");}
                     }finally{await tx.RollbackAsync();}
                 }
                 Assert(HistoryActions.Canonical(initial)==HistoryActions.Canonical(await HistoryActions.CaptureAsync(db,null,entry.Id)),"Verification rollback restores all game rows");

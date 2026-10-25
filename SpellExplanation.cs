@@ -1,5 +1,5 @@
 using System.Globalization;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal static class SpellExplanation
 {

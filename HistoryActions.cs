@@ -2,7 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ItemSnapshot(Dictionary<string,List<Dictionary<string,string?>>> Tables,Dictionary<string,string>? OriginalItem=null,ContentRow[]? ContentRows=null);
 internal sealed record OverrideState(int Version,bool Active,string BaselineJson,string ModifiedJson,string ExpectedJson,string LastEvent);
@@ -11,7 +11,7 @@ internal sealed record HistoryActionResult(string EventId,ItemSnapshot Before,It
 
 internal static class HistoryActions
 {
-    internal const string Archive="anocore_studio_backup.item_editor_override_states";
+    internal static string Archive => $"{AppSettings.Current.BackupDatabase}.item_editor_override_states";
     private static readonly string[] DependencyTables=["item_sparse","item","item_x_item_effect","item_effect","hotfix_data"];
     internal static string Serialize(ItemSnapshot snapshot)=>JsonSerializer.Serialize(snapshot);
     internal static string Canonical(ItemSnapshot snapshot)=>JsonSerializer.Serialize(snapshot.Tables.OrderBy(t=>t.Key,StringComparer.Ordinal).Select(t=>new{Table=t.Key,Rows=t.Value.Select(r=>JsonSerializer.Serialize(r.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>new{p.Key,p.Value}))).OrderBy(r=>r,StringComparer.Ordinal)}));
@@ -24,15 +24,16 @@ internal static class HistoryActions
         fields.Insert(0,new("Override state",plan.Reapply?"Inactive":"Active",plan.Reapply?"Active":"Inactive",true,true));return fields;
     }
     private static string NativeFingerprint()=>string.Join("/",new[]{"ItemSparse","Item","ItemXItemEffect","ItemEffect"}.Select(n=>{var f=new FileInfo(Path.Combine(CatalogRepository.Db2Folder,n+".db2"));return $"{f.Length}:{f.LastWriteTimeUtc.Ticks}";}));
-    internal static async Task InitializeAsync(MySqlConnection db)
+    internal static async Task InitializeAsync(MySqlConnection db,EditorSettings? configuration=null)
     {
-        using(var create=new MySqlCommand("CREATE DATABASE IF NOT EXISTS anocore_studio_backup CHARACTER SET utf8mb4",db))await create.ExecuteNonQueryAsync();
-        const string audit="CREATE TABLE IF NOT EXISTS foreverclassic_hotfixes.anocore_studio_changes (ChangeId CHAR(36) NOT NULL PRIMARY KEY,ChangedUtc DATETIME(6) NOT NULL,Actor VARCHAR(255) NOT NULL,EntityType VARCHAR(32) NOT NULL,EntityId INT NOT NULL,Action VARCHAR(64) NOT NULL,Summary TEXT NOT NULL,BeforeJson LONGTEXT NOT NULL,AfterJson LONGTEXT NOT NULL,Provenance VARCHAR(255) NOT NULL,SourceKey VARCHAR(255) NULL,UNIQUE KEY UX_StudioSource (SourceKey),KEY IX_StudioEntity(EntityType,EntityId),KEY IX_StudioTime(ChangedUtc)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+        var cfg=configuration??AppSettings.Current;string archive=$"{cfg.BackupDatabase}.item_editor_override_states";
+        using(var create=new MySqlCommand($"CREATE DATABASE IF NOT EXISTS {cfg.BackupDatabase} CHARACTER SET utf8mb4",db))await create.ExecuteNonQueryAsync();
+        string audit=$"CREATE TABLE IF NOT EXISTS {cfg.HotfixDatabase}.anocore_studio_changes (ChangeId CHAR(36) NOT NULL PRIMARY KEY,ChangedUtc DATETIME(6) NOT NULL,Actor VARCHAR(255) NOT NULL,EntityType VARCHAR(32) NOT NULL,EntityId INT NOT NULL,Action VARCHAR(64) NOT NULL,Summary TEXT NOT NULL,BeforeJson LONGTEXT NOT NULL,AfterJson LONGTEXT NOT NULL,Provenance VARCHAR(255) NOT NULL,SourceKey VARCHAR(255) NULL,UNIQUE KEY UX_StudioSource (SourceKey),KEY IX_StudioEntity(EntityType,EntityId),KEY IX_StudioTime(ChangedUtc)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
         using(var create=new MySqlCommand(audit,db))await create.ExecuteNonQueryAsync();
-        using(var create=new MySqlCommand("CREATE TABLE IF NOT EXISTS anocore_studio_backup.changes LIKE foreverclassic_hotfixes.anocore_studio_changes",db))await create.ExecuteNonQueryAsync();
-        using(var create=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {Archive} (ItemId INT NOT NULL,PayloadBuild INT NOT NULL,Version INT NOT NULL,IsActive TINYINT NOT NULL,BaselineJson LONGTEXT NOT NULL,ModifiedJson LONGTEXT NOT NULL,ExpectedJson LONGTEXT NOT NULL,LastEventId CHAR(36) NOT NULL,UpdatedUtc DATETIME(6) NOT NULL,PRIMARY KEY(ItemId,PayloadBuild)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db))await create.ExecuteNonQueryAsync();
-        using(var create=new MySqlCommand("CREATE TABLE IF NOT EXISTS anocore_studio_backup.item_editor_hidden_history (ItemId INT NOT NULL,PayloadBuild INT NOT NULL,RemovedUtc DATETIME(6) NOT NULL,Actor VARCHAR(255) NOT NULL,PRIMARY KEY(ItemId,PayloadBuild)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db))await create.ExecuteNonQueryAsync();
-        foreach(string name in DependencyTables.Select(t=>"foreverclassic_hotfixes."+t).Concat(new[]{Archive,"foreverclassic_hotfixes.anocore_studio_changes","anocore_studio_backup.changes","anocore_studio_backup.item_editor_hidden_history"})) {
+        using(var create=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {cfg.BackupDatabase}.changes LIKE {cfg.HotfixDatabase}.anocore_studio_changes",db))await create.ExecuteNonQueryAsync();
+        using(var create=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {archive} (ItemId INT NOT NULL,PayloadBuild INT NOT NULL,Version INT NOT NULL,IsActive TINYINT NOT NULL,BaselineJson LONGTEXT NOT NULL,ModifiedJson LONGTEXT NOT NULL,ExpectedJson LONGTEXT NOT NULL,LastEventId CHAR(36) NOT NULL,UpdatedUtc DATETIME(6) NOT NULL,PRIMARY KEY(ItemId,PayloadBuild)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db))await create.ExecuteNonQueryAsync();
+        using(var create=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {cfg.BackupDatabase}.item_editor_hidden_history (ItemId INT NOT NULL,PayloadBuild INT NOT NULL,RemovedUtc DATETIME(6) NOT NULL,Actor VARCHAR(255) NOT NULL,PRIMARY KEY(ItemId,PayloadBuild)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db))await create.ExecuteNonQueryAsync();
+        foreach(string name in DependencyTables.Select(t=>$"{cfg.HotfixDatabase}."+t).Concat(new[]{archive,$"{cfg.HotfixDatabase}.anocore_studio_changes",$"{cfg.BackupDatabase}.changes",$"{cfg.BackupDatabase}.item_editor_hidden_history"})) {
             var parts=name.Split('.');using var check=new MySqlCommand("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=@schema AND TABLE_NAME=@table",db);check.Parameters.AddWithValue("@schema",parts[0]);check.Parameters.AddWithValue("@table",parts[1]);
             if(!string.Equals(Convert.ToString(await check.ExecuteScalarAsync()),"InnoDB",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException($"{name} must support transactions before revert/reapply can run.");
         }
@@ -120,14 +121,14 @@ internal static class HistoryActions
         var selected=current.Tables["item_sparse"].OrderBy(r=>r["VerifiedBuild"]=="0"?0:1).ThenByDescending(r=>int.Parse(r["VerifiedBuild"]!,CultureInfo.InvariantCulture)).FirstOrDefault();
         bool active=LatestStatus(current,entry.Id)==1&&selected?.GetValueOrDefault("VerifiedBuild")==entry.Build.ToString(CultureInfo.InvariantCulture);
         if(hidden&&(entry.Active||active))throw new InvalidOperationException("Active overrides cannot be removed from history. Refresh and revert the override first.");
-        using(var cmd=new MySqlCommand(hidden?"INSERT INTO anocore_studio_backup.item_editor_hidden_history (ItemId,PayloadBuild,RemovedUtc,Actor) VALUES(@id,@build,UTC_TIMESTAMP(6),@actor) ON DUPLICATE KEY UPDATE RemovedUtc=UTC_TIMESTAMP(6),Actor=@actor":"DELETE FROM anocore_studio_backup.item_editor_hidden_history WHERE ItemId=@id AND PayloadBuild=@build",db,tx)){
+        using(var cmd=new MySqlCommand(hidden?$"INSERT INTO {AppSettings.Current.BackupDatabase}.item_editor_hidden_history (ItemId,PayloadBuild,RemovedUtc,Actor) VALUES(@id,@build,UTC_TIMESTAMP(6),@actor) ON DUPLICATE KEY UPDATE RemovedUtc=UTC_TIMESTAMP(6),Actor=@actor":$"DELETE FROM {AppSettings.Current.BackupDatabase}.item_editor_hidden_history WHERE ItemId=@id AND PayloadBuild=@build",db,tx)){
             cmd.Parameters.AddWithValue("@id",entry.Id);cmd.Parameters.AddWithValue("@build",entry.Build);cmd.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);await cmd.ExecuteNonQueryAsync();
         }
         string eventId=Guid.NewGuid().ToString();
-        using(var audit=new MySqlCommand("INSERT INTO anocore_studio_changes (ChangeId,ChangedUtc,Actor,EntityType,EntityId,Action,Summary,BeforeJson,AfterJson,Provenance,SourceKey) VALUES(@event,UTC_TIMESTAMP(6),@actor,'Item',@id,@action,@summary,@snapshot,@snapshot,'AnoWoW Item Editor history visibility',@key)",db,tx)){
+        using(var audit=new MySqlCommand("INSERT INTO anocore_studio_changes (ChangeId,ChangedUtc,Actor,EntityType,EntityId,Action,Summary,BeforeJson,AfterJson,Provenance,SourceKey) VALUES(@event,UTC_TIMESTAMP(6),@actor,'Item',@id,@action,@summary,@snapshot,@snapshot,'WoWItemEditor Item Editor history visibility',@key)",db,tx)){
             audit.Parameters.AddWithValue("@event",eventId);audit.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);audit.Parameters.AddWithValue("@id",entry.Id);audit.Parameters.AddWithValue("@action",hidden?"Remove from history":"Restore to history");audit.Parameters.AddWithValue("@summary",$"{entry.Name}; payload build {entry.Build}. History visibility changed; game data retained.");audit.Parameters.AddWithValue("@snapshot",Serialize(current));audit.Parameters.AddWithValue("@key","ItemEditor:"+eventId);await audit.ExecuteNonQueryAsync();
         }
-        using(var mirror=new MySqlCommand("INSERT INTO anocore_studio_backup.changes SELECT * FROM anocore_studio_changes WHERE ChangeId=@event",db,tx)){mirror.Parameters.AddWithValue("@event",eventId);await mirror.ExecuteNonQueryAsync();}
+        using(var mirror=new MySqlCommand($"INSERT INTO {AppSettings.Current.BackupDatabase}.changes SELECT * FROM anocore_studio_changes WHERE ChangeId=@event",db,tx)){mirror.Parameters.AddWithValue("@event",eventId);await mirror.ExecuteNonQueryAsync();}
     }
     internal static async Task<HistoryActionResult> ApplyCoreAsync(MySqlConnection db,MySqlTransaction tx,HistoryPlan plan)
     {
@@ -158,16 +159,16 @@ internal static class HistoryActions
             push.Parameters.AddWithValue("@push",next);push.Parameters.AddWithValue("@hash",TooltipData.Hash("ItemSparse"));push.Parameters.AddWithValue("@id",plan.Id);push.Parameters.AddWithValue("@status",status);await push.ExecuteNonQueryAsync();
         }
         var after=await CaptureAsync(db,tx,plan.Id,true);int version=plan.Version+1;string eventId=Guid.NewGuid().ToString();
-        using(var visible=new MySqlCommand("DELETE FROM anocore_studio_backup.item_editor_hidden_history WHERE ItemId=@id AND PayloadBuild=@build",db,tx)){visible.Parameters.AddWithValue("@id",plan.Id);visible.Parameters.AddWithValue("@build",plan.Build);await visible.ExecuteNonQueryAsync();}
+        using(var visible=new MySqlCommand($"DELETE FROM {AppSettings.Current.BackupDatabase}.item_editor_hidden_history WHERE ItemId=@id AND PayloadBuild=@build",db,tx)){visible.Parameters.AddWithValue("@id",plan.Id);visible.Parameters.AddWithValue("@build",plan.Build);await visible.ExecuteNonQueryAsync();}
         string baseline=state?.BaselineJson??Serialize(plan.Reapply?before:plan.Target),modified=state?.ModifiedJson??Serialize(plan.Modified);
         using(var save=new MySqlCommand($"INSERT INTO {Archive} (ItemId,PayloadBuild,Version,IsActive,BaselineJson,ModifiedJson,ExpectedJson,LastEventId,UpdatedUtc) VALUES(@id,@build,@version,@active,@baseline,@modified,@expected,@event,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE Version=@version,IsActive=@active,ExpectedJson=@expected,LastEventId=@event,UpdatedUtc=UTC_TIMESTAMP(6)",db,tx)) {
             save.Parameters.AddWithValue("@id",plan.Id);save.Parameters.AddWithValue("@build",plan.Build);save.Parameters.AddWithValue("@version",version);save.Parameters.AddWithValue("@active",plan.Reapply);save.Parameters.AddWithValue("@baseline",baseline);save.Parameters.AddWithValue("@modified",modified);save.Parameters.AddWithValue("@expected",Serialize(after));save.Parameters.AddWithValue("@event",eventId);await save.ExecuteNonQueryAsync();
         }
         string action=plan.Reapply?"Reapply item override":"Revert item override";
-        using(var audit=new MySqlCommand("INSERT INTO foreverclassic_hotfixes.anocore_studio_changes (ChangeId,ChangedUtc,Actor,EntityType,EntityId,Action,Summary,BeforeJson,AfterJson,Provenance,SourceKey) VALUES(@event,UTC_TIMESTAMP(6),@actor,'Item',@id,@action,@summary,@before,@after,@source,@key)",db,tx)) {
-            audit.Parameters.AddWithValue("@event",eventId);audit.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);audit.Parameters.AddWithValue("@id",plan.Id);audit.Parameters.AddWithValue("@action",action);audit.Parameters.AddWithValue("@summary",$"{action}: {plan.Name}; payload build {plan.Build}; saved version {version}. Server reload pending.");audit.Parameters.AddWithValue("@before",Serialize(before));audit.Parameters.AddWithValue("@after",Serialize(after));audit.Parameters.AddWithValue("@source","AnoWoW Item Editor; parent "+(plan.Parent??"initial database record"));audit.Parameters.AddWithValue("@key","ItemEditor:"+eventId);await audit.ExecuteNonQueryAsync();
+        using(var audit=new MySqlCommand($"INSERT INTO {AppSettings.Current.HotfixDatabase}.anocore_studio_changes (ChangeId,ChangedUtc,Actor,EntityType,EntityId,Action,Summary,BeforeJson,AfterJson,Provenance,SourceKey) VALUES(@event,UTC_TIMESTAMP(6),@actor,'Item',@id,@action,@summary,@before,@after,@source,@key)",db,tx)) {
+            audit.Parameters.AddWithValue("@event",eventId);audit.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);audit.Parameters.AddWithValue("@id",plan.Id);audit.Parameters.AddWithValue("@action",action);audit.Parameters.AddWithValue("@summary",$"{action}: {plan.Name}; payload build {plan.Build}; saved version {version}. Server reload pending.");audit.Parameters.AddWithValue("@before",Serialize(before));audit.Parameters.AddWithValue("@after",Serialize(after));audit.Parameters.AddWithValue("@source","WoWItemEditor Item Editor; parent "+(plan.Parent??"initial database record"));audit.Parameters.AddWithValue("@key","ItemEditor:"+eventId);await audit.ExecuteNonQueryAsync();
         }
-        using(var mirror=new MySqlCommand("INSERT INTO anocore_studio_backup.changes SELECT * FROM foreverclassic_hotfixes.anocore_studio_changes WHERE ChangeId=@event",db,tx)){mirror.Parameters.AddWithValue("@event",eventId);await mirror.ExecuteNonQueryAsync();}
+        using(var mirror=new MySqlCommand($"INSERT INTO {AppSettings.Current.BackupDatabase}.changes SELECT * FROM {AppSettings.Current.HotfixDatabase}.anocore_studio_changes WHERE ChangeId=@event",db,tx)){mirror.Parameters.AddWithValue("@event",eventId);await mirror.ExecuteNonQueryAsync();}
         return new(eventId,before,after,version,plan.Reapply);
     }
 }

@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed class ContentHistoryWindow : Window
 {

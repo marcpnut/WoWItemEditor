@@ -1,5 +1,5 @@
 using System.Globalization;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 // Numeric type names from TrinityCore SharedDefines.h and SpellAuraDefines.h.
 // These are reference labels; unknown/custom IDs remain explicit. No runtime network lookup.

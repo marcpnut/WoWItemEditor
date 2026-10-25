@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed class EditableItemField(string key,string value) : INotifyPropertyChanged
 {

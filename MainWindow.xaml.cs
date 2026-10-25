@@ -10,7 +10,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Windows.Documents;
 using System.Text.RegularExpressions;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public partial class MainWindow : Window
 {
@@ -38,13 +38,22 @@ public partial class MainWindow : Window
         ItemType.ItemsSource = new[] { new FilterChoice(-1,"All item types") }.Concat(CatalogItem.Classes.Select(p=>new FilterChoice(p.Key,p.Value)));
         Rarity.SelectedIndex=Slot.SelectedIndex=ItemType.SelectedIndex=0;
         filterTimer.Tick += (_,_)=> { filterTimer.Stop(); ApplyFilters(); };
-        Loaded += async (_,_)=>{if(Environment.GetCommandLineArgs().Contains("--verify-startup"))await VerifyStartup();else if(verify)await LoadCatalog();else await (startupTask??=StartWorkspace());};
+        Loaded += async (_,_)=>{if(Environment.GetCommandLineArgs().Contains("--verify-storage"))await VerifyStorage();else if(Environment.GetCommandLineArgs().Contains("--verify-settings"))await VerifySettings();else if(Environment.GetCommandLineArgs().Contains("--verify-startup"))await VerifyStartup();else if(verify)await LoadCatalog();else await (startupTask??=StartWorkspace());};
     }
     private async Task StartWorkspace()
     {
+        if(!AppSettings.Configured){var setup=new SettingsWindow(true){Owner=this};if(setup.ShowDialog()!=true||setup.Result is null){CharacterSummary.Text="Open Settings to configure the database and data folders.";return;}AppSettings.ApplyInitial(setup.Result);}
+
         startingUp=true;CharacterNav.IsChecked=true;startingUp=false;
+        string? storageError=null;Status.Text="Preparing editor backup database and history tables…";
+        try{await EditorStorage.Prepare();}catch(Exception ex){storageError="Backup setup failed: "+ex.Message;}
         var catalogs=LoadCatalog();var heroes=LoadCharacters();var spells=WarmReferences();
         await Task.WhenAll(catalogs,heroes,spells);
+        if(storageError is not null){Status.Text=storageError;MessageBox.Show(this,storageError,"Editor backup setup",MessageBoxButton.OK,MessageBoxImage.Warning);}
+    }
+    private void OpenSettings(object sender,RoutedEventArgs e)
+    {
+        var window=new SettingsWindow(){Owner=this};if(window.ShowDialog()==true)Status.Text="Settings saved. Restart WoWItemEditor to apply them; the current session keeps its existing connection.";
     }
     private async Task LoadCatalog()
     {

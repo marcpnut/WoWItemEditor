@@ -3,7 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record EquipmentViewItem(object Key,CatalogItem Item,int? Slot=null,bool Active=true);
 

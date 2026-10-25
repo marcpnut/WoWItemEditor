@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 public partial class MainWindow
 {
     private async Task VerifySetReview(CatalogResult catalog)

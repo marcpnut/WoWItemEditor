@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.Json;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ContentRow(int Id,int EffectId,int SpellId,int Pieces=2,int Specialization=0,int Trait=0,int Trigger=2,int Cooldown=-1,int CategoryCooldown=-1,int Charges=0,int Slot=0,int Category=0,int Condition=0,BonusDraft? Bonus=null)
 {
@@ -15,15 +15,16 @@ internal sealed record ContentOperation(string Id,string Kind,int EntityId,strin
 
 internal static class ContentEditing
 {
-    internal const string Operations="anocore_studio_backup.item_editor_content_operations";
+    internal static string Operations => $"{AppSettings.Current.BackupDatabase}.item_editor_content_operations";
     internal static readonly Dictionary<string,string> Tables=new(){["item_set_spell"]="ItemSetSpell",["item_effect"]="ItemEffect",["item_x_item_effect"]="ItemXItemEffect",["item_set"]="ItemSet",["item_sparse"]="ItemSparse",["item"]="Item"};
     internal static string Fingerprint()=>string.Join("/",new[]{"ItemSetSpell","ItemEffect","ItemXItemEffect","ItemSet","ItemSparse"}.Select(n=>{var f=new FileInfo(Path.Combine(CatalogRepository.Db2Folder,n+".db2"));return $"{f.Length}:{f.LastWriteTimeUtc.Ticks}";}));
     private static int N(IReadOnlyDictionary<string,string> row,string key)=>int.TryParse(row.GetValueOrDefault(key),out int n)?n:0;
-    internal static async Task InitializeAsync(MySqlConnection db)
+    internal static async Task InitializeAsync(MySqlConnection db,EditorSettings? configuration=null)
     {
-        await HistoryActions.InitializeAsync(db);await WorldDrops.Initialize(db);
-        using(var cmd=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {Operations} (OperationId CHAR(36) NOT NULL PRIMARY KEY,Kind VARCHAR(16) NOT NULL,EntityId INT NOT NULL,Name VARCHAR(255) NOT NULL,IsActive TINYINT NOT NULL,IsHidden TINYINT NOT NULL DEFAULT 0,Version INT NOT NULL,BeforeJson LONGTEXT NOT NULL,AfterJson LONGTEXT NOT NULL,ExpectedJson LONGTEXT NOT NULL,ScopeJson LONGTEXT NOT NULL,Fingerprint TEXT NOT NULL,RecordedUtc DATETIME(6) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db))await cmd.ExecuteNonQueryAsync();
-        foreach(string table in Tables.Keys.Select(t=>"foreverclassic_hotfixes."+t).Append(Operations)){
+        var cfg=configuration??AppSettings.Current;string operations=$"{cfg.BackupDatabase}.item_editor_content_operations";
+        await HistoryActions.InitializeAsync(db,cfg);await WorldDrops.Initialize(db,cfg);
+        using(var cmd=new MySqlCommand($"CREATE TABLE IF NOT EXISTS {operations} (OperationId CHAR(36) NOT NULL PRIMARY KEY,Kind VARCHAR(16) NOT NULL,EntityId INT NOT NULL,Name VARCHAR(255) NOT NULL,IsActive TINYINT NOT NULL,IsHidden TINYINT NOT NULL DEFAULT 0,Version INT NOT NULL,BeforeJson LONGTEXT NOT NULL,AfterJson LONGTEXT NOT NULL,ExpectedJson LONGTEXT NOT NULL,ScopeJson LONGTEXT NOT NULL,Fingerprint TEXT NOT NULL,RecordedUtc DATETIME(6) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",db))await cmd.ExecuteNonQueryAsync();
+        foreach(string table in Tables.Keys.Select(t=>$"{cfg.HotfixDatabase}."+t).Append(operations)){
             var p=table.Split('.');using var cmd=new MySqlCommand("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=@s AND TABLE_NAME=@t",db);cmd.Parameters.AddWithValue("@s",p[0]);cmd.Parameters.AddWithValue("@t",p[1]);if(!string.Equals(Convert.ToString(await cmd.ExecuteScalarAsync()),"InnoDB",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException(table+" must support transactions.");
         }
     }
@@ -159,13 +160,13 @@ internal static class ContentEditing
     internal static async Task Audit(MySqlConnection db,MySqlTransaction tx,ContentScope scope,string action,string name,string parent,ItemSnapshot before,ItemSnapshot after)
     {
         string eventId=Guid.NewGuid().ToString();using(var cmd=new MySqlCommand("INSERT INTO anocore_studio_changes(ChangeId,ChangedUtc,Actor,EntityType,EntityId,Action,Summary,BeforeJson,AfterJson,Provenance,SourceKey) VALUES(@event,UTC_TIMESTAMP(6),@actor,@kind,@id,@action,@summary,@before,@after,@provenance,@key)",db,tx)){
-            cmd.Parameters.AddWithValue("@event",eventId);cmd.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);cmd.Parameters.AddWithValue("@kind",scope.Kind);cmd.Parameters.AddWithValue("@id",scope.EntityId);cmd.Parameters.AddWithValue("@action",action);cmd.Parameters.AddWithValue("@summary",$"{name} · {action}. Server reload pending.");cmd.Parameters.AddWithValue("@before",HistoryActions.Serialize(before));cmd.Parameters.AddWithValue("@after",HistoryActions.Serialize(after));cmd.Parameters.AddWithValue("@provenance","AnoWoW Item Editor; operation "+parent);cmd.Parameters.AddWithValue("@key","ItemEditor:"+eventId);await cmd.ExecuteNonQueryAsync();
+            cmd.Parameters.AddWithValue("@event",eventId);cmd.Parameters.AddWithValue("@actor",Environment.UserDomainName+"\\"+Environment.UserName);cmd.Parameters.AddWithValue("@kind",scope.Kind);cmd.Parameters.AddWithValue("@id",scope.EntityId);cmd.Parameters.AddWithValue("@action",action);cmd.Parameters.AddWithValue("@summary",$"{name} · {action}. Server reload pending.");cmd.Parameters.AddWithValue("@before",HistoryActions.Serialize(before));cmd.Parameters.AddWithValue("@after",HistoryActions.Serialize(after));cmd.Parameters.AddWithValue("@provenance","WoWItemEditor Item Editor; operation "+parent);cmd.Parameters.AddWithValue("@key","ItemEditor:"+eventId);await cmd.ExecuteNonQueryAsync();
         }
-        using var mirror=new MySqlCommand("INSERT INTO anocore_studio_backup.changes SELECT * FROM anocore_studio_changes WHERE ChangeId=@id",db,tx);mirror.Parameters.AddWithValue("@id",eventId);await mirror.ExecuteNonQueryAsync();
+        using var mirror=new MySqlCommand($"INSERT INTO {AppSettings.Current.BackupDatabase}.changes SELECT * FROM anocore_studio_changes WHERE ChangeId=@id",db,tx);mirror.Parameters.AddWithValue("@id",eventId);await mirror.ExecuteNonQueryAsync();
     }
     internal static async Task<List<ContentOperation>> ListAsync()
     {
-        using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);if(!await HotfixHistory.HasTable(db,"anocore_studio_backup","item_editor_content_operations"))return [];
+        using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);if(!await HotfixHistory.HasTable(db,$"{AppSettings.Current.BackupDatabase}","item_editor_content_operations"))return [];
         return ReadOperations(await Query(db,null,$"SELECT * FROM {Operations} ORDER BY RecordedUtc DESC",0));
     }
     private static List<ContentOperation> ReadOperations(List<Dictionary<string,string?>> rows)=>rows.Select(r=>new ContentOperation(r["OperationId"]!,r["Kind"]!,int.Parse(r["EntityId"]!),r["Name"]!,r["IsActive"]=="1",r["IsHidden"]=="1",int.Parse(r["Version"]!),r["BeforeJson"]!,r["AfterJson"]!,r["ExpectedJson"]!,r["ScopeJson"]!,r["Fingerprint"]!,r["RecordedUtc"]!)).ToList();

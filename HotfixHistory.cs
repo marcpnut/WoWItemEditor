@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Windows.Media;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed record RecordedChange(string Id,int ItemId,string RecordedUtc,string Actor,string Action,string Summary,string Provenance,string BeforeJson,string AfterJson);
 public sealed record FieldComparison(string Field,string Original,string Modified,bool Changed,bool Known);
@@ -52,7 +52,7 @@ public sealed class HotfixHistory
     internal static async Task<HotfixHistory> LoadAsync(MySqlConnection db,HotfixTable sparse,Dictionary<int,CatalogItem> originals,Dictionary<int,CatalogItem> current)
     {
         var history=new HotfixHistory();var events=new Dictionary<string,RecordedChange>();
-        foreach(var (schema,table) in new[]{(CatalogRepository.Database,"anocore_studio_changes"),("anocore_studio_backup","changes")}) {
+        foreach(var (schema,table) in new[]{(CatalogRepository.Database,"anocore_studio_changes"),($"{AppSettings.Current.BackupDatabase}","changes")}) {
             try {
                 if(!await HasTable(db,schema,table))continue;
                 using var cmd=new MySqlCommand($"SELECT ChangeId,EntityId,ChangedUtc,Actor,Action,Summary,Provenance,BeforeJson,AfterJson FROM `{schema}`.`{table}` WHERE EntityType='Item' ORDER BY ChangedUtc DESC,ChangeId",db);
@@ -66,10 +66,10 @@ public sealed class HotfixHistory
         var rows=new List<(Dictionary<string,string> Fields,string Source)>();rows.AddRange(sparse.Rows.Select(r=>(r,"Database override")));
         var managed=new HashSet<string>();
         var hidden=new HashSet<string>();
-        if(await HasTable(db,"anocore_studio_backup","item_editor_hidden_history")) {
-            using var cmd=new MySqlCommand("SELECT ItemId,PayloadBuild FROM anocore_studio_backup.item_editor_hidden_history",db);using var r=await cmd.ExecuteReaderAsync();while(await r.ReadAsync())hidden.Add($"{r[0]}/{r[1]}");
+        if(await HasTable(db,$"{AppSettings.Current.BackupDatabase}","item_editor_hidden_history")) {
+            using var cmd=new MySqlCommand($"SELECT ItemId,PayloadBuild FROM {AppSettings.Current.BackupDatabase}.item_editor_hidden_history",db);using var r=await cmd.ExecuteReaderAsync();while(await r.ReadAsync())hidden.Add($"{r[0]}/{r[1]}");
         }
-        if(await HasTable(db,"anocore_studio_backup","item_editor_override_states")) {
+        if(await HasTable(db,$"{AppSettings.Current.BackupDatabase}","item_editor_override_states")) {
             using var cmd=new MySqlCommand($"SELECT ItemId,PayloadBuild,ModifiedJson FROM {HistoryActions.Archive}",db);using var r=await cmd.ExecuteReaderAsync();
             while(await r.ReadAsync()) {
                 int id=Convert.ToInt32(r[0]),build=Convert.ToInt32(r[1]);managed.Add($"{id}/{build}");

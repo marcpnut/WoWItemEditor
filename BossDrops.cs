@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 internal sealed record InstanceBoss(int MapId,int CreatureId,int LootId,string Instance,string Name,int Min,int Max,string Difficulty)
 {
     public string Key=>$"{MapId}:{CreatureId}";
@@ -16,7 +16,7 @@ internal static class BossDrops
 {
     internal static async Task<(List<InstanceBoss> Bosses,string Fingerprint)> Load(MySqlConnection db,MySqlTransaction? tx,WorldDropCatalog world)
     {
-        var raw=await WorldDrops.Query(db,tx,"SELECT * FROM foreverclassic_world.instance_encounters ORDER BY entry");var variants=await WorldDrops.Query(db,tx,"SELECT entry,difficulty_entry_1,difficulty_entry_2,difficulty_entry_3 FROM foreverclassic_world.creature_template ORDER BY entry");var byVariant=variants.ToDictionary(r=>int.Parse(r["entry"]!));var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));var encounters=await Task.Run(()=>TooltipData.LoadTable(reader,"DungeonEncounter"));var creatures=world.Creatures.ToDictionary(c=>c.Entry);var list=new List<InstanceBoss>();
+        var raw=await WorldDrops.Query(db,tx,$"SELECT * FROM {AppSettings.Current.WorldDatabase}.instance_encounters ORDER BY entry");var variants=await WorldDrops.Query(db,tx,$"SELECT entry,difficulty_entry_1,difficulty_entry_2,difficulty_entry_3 FROM {AppSettings.Current.WorldDatabase}.creature_template ORDER BY entry");var byVariant=variants.ToDictionary(r=>int.Parse(r["entry"]!));var reader=new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true));var encounters=await Task.Run(()=>TooltipData.LoadTable(reader,"DungeonEncounter"));var creatures=world.Creatures.ToDictionary(c=>c.Entry);var list=new List<InstanceBoss>();
         foreach(var row in raw.Where(r=>r["creditType"]=="0")){
             if(!encounters.TryGetValue(int.Parse(row["entry"]!),out var encounter))continue;int mapId=TooltipData.Number(encounter,"MapID"),npc=int.Parse(row["creditEntry"]!);if(!world.Maps.TryGetValue(mapId,out var map)||TooltipData.Number(map,"InstanceType") is not (1 or 2)||!creatures.TryGetValue(npc,out var creature))continue;string instance=TooltipData.Read(map,"MapName");if(creature.Loot>0)list.Add(new(mapId,npc,creature.Loot,instance,creature.Name,creature.Min,creature.Max,"Base"));if(byVariant.TryGetValue(npc,out var variant))for(int i=1;i<=3;i++)if(int.TryParse(variant["difficulty_entry_"+i],out int entry)&&entry>0&&creatures.TryGetValue(entry,out var alternate)&&alternate.Loot>0)list.Add(new(mapId,entry,alternate.Loot,instance,alternate.Name,alternate.Min,alternate.Max,"Variant "+i));
         }

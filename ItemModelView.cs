@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed class ItemModelView : Grid
 {
@@ -27,7 +27,6 @@ internal sealed class ItemModelView : Grid
     private Point last;
     private double distance=4,zoom=1;
     private static readonly Dictionary<string,Task<StaticItemMesh>> cache=[];
-    private static readonly string settingsPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AnoWowItemEditor","model-viewer.json");
     internal Task Loading {get;private set;}=Task.CompletedTask;
     internal int LoadedItem {get;private set;}
     internal int TriangleCount {get;private set;}
@@ -88,7 +87,7 @@ internal sealed class ItemModelView : Grid
     private async Task Load(CatalogItem? selected,bool force)
     {
         int token=++request;LoadedItem=TriangleCount=TextureCount=0;visual.Content=null;appearance=null;message.Visibility=Visibility.Visible;title.Text=selected?.Name??"Select an item";title.Foreground=selected?.NameBrush??Brushes.LightSkyBlue;if(selected is null){message.Text="Select an item to view its model.";return;}message.Text="Loading textured item…";info.Text="Reading client assets; missing files may be downloaded into the viewer cache…";retry.IsEnabled=false;
-        try{string? folder=null;if(File.Exists(settingsPath))try{folder=JsonSerializer.Deserialize<Dictionary<string,string>>(File.ReadAllText(settingsPath))?.GetValueOrDefault("ClientFolder");}catch(JsonException){}var resolved=await ItemModelAssets.Shared.Resolve(selected.Id,folder,force);if(token!=request)return;appearance=resolved;binding=true;part.ItemsSource=(selected.Slot==3&&resolved.Parts.Length==2?new[]{new FilterChoice(-1,"Both shoulders")}:Array.Empty<FilterChoice>()).Concat(resolved.Parts.Select((p,n)=>new FilterChoice(n,$"Part / variant {n+1}"))).ToArray();part.SelectedIndex=0;skin.ItemsSource=new[]{new FilterChoice(0,"Appearance skin")}.Concat(resolved.Textures.Skip(1).Select((id,n)=>new FilterChoice(id,$"Skin variant {n+2}"))).ToArray();skin.SelectedIndex=0;binding=false;Reset();if(force)foreach(string key in cache.Keys.Where(k=>resolved.Models.Any(id=>k.Contains("/"+id+"/"))).ToArray())cache.Remove(key);await Render(token);}
+        try{var resolved=await ItemModelAssets.Shared.Resolve(selected.Id,null,force);if(token!=request)return;appearance=resolved;binding=true;part.ItemsSource=(selected.Slot==3&&resolved.Parts.Length==2?new[]{new FilterChoice(-1,"Both shoulders")}:Array.Empty<FilterChoice>()).Concat(resolved.Parts.Select((p,n)=>new FilterChoice(n,$"Part / variant {n+1}"))).ToArray();part.SelectedIndex=0;skin.ItemsSource=new[]{new FilterChoice(0,"Appearance skin")}.Concat(resolved.Textures.Skip(1).Select((id,n)=>new FilterChoice(id,$"Skin variant {n+2}"))).ToArray();skin.SelectedIndex=0;binding=false;Reset();if(force)foreach(string key in cache.Keys.Where(k=>resolved.Models.Any(id=>k.Contains("/"+id+"/"))).ToArray())cache.Remove(key);await Render(token);}
         catch(Exception ex){if(token==request){message.Text="3D preview unavailable"+(compact?"\n"+ex.Message:"");info.Text=ex.Message+" The item data is unchanged.";}}finally{if(token==request)retry.IsEnabled=true;}
     }
     private Task Render()=>Render(++request);
@@ -104,6 +103,6 @@ internal sealed class ItemModelView : Grid
     }
     private void ChooseClient()
     {
-        var picker=new Microsoft.Win32.OpenFolderDialog{Title="Choose WoW root containing .build.info and Data",InitialDirectory=Directory.Exists(ItemModelAssets.DefaultClient)?ItemModelAssets.DefaultClient:Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)};if(picker.ShowDialog(Window.GetWindow(this))!=true)return;Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);File.WriteAllText(settingsPath,JsonSerializer.Serialize(new{ClientFolder=picker.FolderName}));if(item is not null)Bind(item,true);
+        var settings=new SettingsWindow{Owner=Window.GetWindow(this)};if(settings.ShowDialog()==true)info.Text="Settings saved. Restart WoWItemEditor to use the selected client folder.";
     }
 }

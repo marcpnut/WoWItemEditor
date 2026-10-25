@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.IO;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed record ItemValues(int? ItemLevel,int? Armor,Dictionary<int,int> Stats,float? MinDamage,float? MaxDamage,float? Dps,string Note);
 public sealed class ItemCalculations

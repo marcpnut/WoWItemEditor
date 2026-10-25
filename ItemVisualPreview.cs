@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record ItemPreviewContext(CatalogItem Item,CharacterSnapshot? Character);
 internal sealed class ItemVisualPreview : DockPanel

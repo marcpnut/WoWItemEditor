@@ -1,4 +1,4 @@
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 // Keep the large installed/reference catalog; replace only definitions changed by this workflow.
 internal static class SetCatalogRefresh

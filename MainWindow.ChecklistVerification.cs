@@ -1,6 +1,6 @@
 using System.IO;
 using System.Text.Json;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 public partial class MainWindow
 {
     private async Task VerifyChecklist(CatalogResult catalog)

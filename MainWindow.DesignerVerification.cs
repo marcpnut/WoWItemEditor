@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 public partial class MainWindow
 {
     private async Task VerifyDesigner(CatalogResult catalog,ReferenceCatalog references)

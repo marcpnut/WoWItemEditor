@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 internal sealed class BossChoice(InstanceBoss boss) : INotifyPropertyChanged
 {
     internal InstanceBoss Boss {get;}=boss;

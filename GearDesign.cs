@@ -1,5 +1,5 @@
 using System.Globalization;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record DesignMetric(string Name,string Before,string After,string Change);
 internal sealed record EquipPreview(CharacterSnapshot Before,CharacterSnapshot After,OwnedItem[] Removed,List<string> Notes,bool Allowed);

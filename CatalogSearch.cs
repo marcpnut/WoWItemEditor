@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal static class CatalogSearch
 {

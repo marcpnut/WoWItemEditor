@@ -1,5 +1,5 @@
 using System.Globalization;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed record TooltipLine(string Text,string Color="#FFFFFF",string? Right=null,int Indent=0,double Size=13,bool Bold=false,int? TargetItem=null,int? TargetSet=null);
 

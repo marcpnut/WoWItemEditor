@@ -2,7 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 internal sealed record SetPieceDraft(int Slot,CloneBlueprint Source,CatalogItem Draft,DropPlan Drops)
 {
     public string SlotName=>GearDesign.EquipmentSlots[Slot];

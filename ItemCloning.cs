@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.Json;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record CloneScope(Dictionary<string,int[]> Records,int[] EffectIds,string Fingerprint,bool IncludeVoid=false);
 internal sealed record CloneBlueprint(ItemEditSession Item,Dictionary<string,List<Dictionary<string,string>>> Rows,CloneScope SourceScope,ItemSnapshot SourceExpected);
@@ -29,8 +29,8 @@ internal static class ItemCloning
         string suffix=locked?" FOR UPDATE":"";var tables=new Dictionary<string,List<Dictionary<string,string?>>>();var hashes=new List<string>();foreach(var (table,dbc) in Tables){string predicate=table is "item" or "item_sparse"?$"ID={id}":$"ItemID={id} OR ID IN({Ids(scope.Records[table])})";tables[table]=await Rows(db,tx,$"SELECT * FROM {table} WHERE {predicate} ORDER BY ID,VerifiedBuild"+suffix);hashes.Add($"(TableHash={TooltipData.Hash(dbc)} AND RecordId IN({Ids(scope.Records[table].Concat(tables[table].Select(r=>int.Parse(r["ID"]!))))}))");}
         tables["item_effect"]=await Rows(db,tx,$"SELECT * FROM item_effect WHERE ID IN({Ids(scope.EffectIds)}) ORDER BY ID,VerifiedBuild"+suffix);hashes.Add($"(TableHash={TooltipData.Hash("ItemEffect")} AND RecordId IN({Ids(scope.EffectIds)}))");
         tables["hotfix_data"]=await Rows(db,tx,$"SELECT * FROM hotfix_data WHERE {string.Join(" OR ",hashes)} ORDER BY Id,UniqueId"+suffix);
-        tables["owned_instances"]=await Rows(db,tx,$"SELECT guid,itemEntry FROM foreverclassic_characters.item_instance WHERE itemEntry={id} ORDER BY guid"+suffix);
-        if(scope.IncludeVoid)tables["void_instances"]=await Rows(db,tx,$"SELECT itemId,playerGuid,itemEntry FROM foreverclassic_characters.character_void_storage WHERE itemEntry={id} ORDER BY itemId"+suffix);
+        tables["owned_instances"]=await Rows(db,tx,$"SELECT guid,itemEntry FROM {AppSettings.Current.CharacterDatabase}.item_instance WHERE itemEntry={id} ORDER BY guid"+suffix);
+        if(scope.IncludeVoid)tables["void_instances"]=await Rows(db,tx,$"SELECT itemId,playerGuid,itemEntry FROM {AppSettings.Current.CharacterDatabase}.character_void_storage WHERE itemEntry={id} ORDER BY itemId"+suffix);
         return new(tables);
     }
     private static int NativeMax(string dbc){using var f=File.OpenRead(Path.Combine(CatalogRepository.Db2Folder,dbc+".db2"));var h=new byte[168];f.ReadExactly(h);return checked((int)BitConverter.ToUInt32(h,164));}
@@ -44,7 +44,7 @@ internal static class ItemCloning
         ItemEditing.Validate(source.Item,draft);var fresh=await ItemCalculations.LoadAsync(db,new DBCD.DBCD(new FilesystemDBCProvider(CatalogRepository.Db2Folder),new GithubDBDProvider(true)),true,tx);var unsafeRows=fresh.ServerProblems(draft);if(unsafeRows.Count>0)throw new InvalidOperationException("Copy blocked: "+string.Join(" ",unsafeRows));if(source.SourceScope.Fingerprint!=Fingerprint()||HistoryActions.Canonical(await CaptureAsync(db,tx,source.Item.Current.Id,source.SourceScope,true))!=HistoryActions.Canonical(source.SourceExpected))throw new InvalidOperationException("Source item, appearances or effects changed. Reload it before duplicating.");
         using(var engine=new MySqlCommand("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='item_modified_appearance'",db,tx))if(Convert.ToString(await engine.ExecuteScalarAsync())!="InnoDB")throw new InvalidOperationException("Appearance mappings must support transactions.");
         int id=Math.Max(await Next(db,tx,"item","Item"),await Next(db,tx,"item_sparse","ItemSparse"));
-        using(var used=new MySqlCommand("SELECT GREATEST(COALESCE((SELECT MAX(itemEntry) FROM foreverclassic_characters.item_instance),0),COALESCE((SELECT MAX(itemEntry) FROM foreverclassic_characters.character_void_storage),0))",db,tx))id=Math.Max(id,checked(Convert.ToInt32(await used.ExecuteScalarAsync())+1));
+        using(var used=new MySqlCommand($"SELECT GREATEST(COALESCE((SELECT MAX(itemEntry) FROM {AppSettings.Current.CharacterDatabase}.item_instance),0),COALESCE((SELECT MAX(itemEntry) FROM {AppSettings.Current.CharacterDatabase}.character_void_storage),0))",db,tx))id=Math.Max(id,checked(Convert.ToInt32(await used.ExecuteScalarAsync())+1));
         var records=new Dictionary<string,int[]>{["item"]=[id],["item_sparse"]=[id]};foreach(string table in source.Rows.Keys){int first=await Next(db,tx,table,Tables[table]);records[table]=Enumerable.Range(first,source.Rows[table].Count).ToArray();}
         var clone=new CloneScope(records,source.SourceScope.EffectIds,Fingerprint(),true);var scope=new ContentScope("Clone",id,[id],[],[],[],CopyScope:clone);var before=await CaptureAsync(db,tx,id,clone,true);if(before.Tables.Where(p=>Tables.ContainsKey(p.Key)).Any(p=>p.Value.Count>0)||before.Tables["owned_instances"].Count>0||before.Tables.GetValueOrDefault("void_instances")?.Count>0)throw new InvalidOperationException("The allocated item ID is already in use. Retry.");
         var fields=new Dictionary<string,string>(draft.Fields,StringComparer.OrdinalIgnoreCase){["ID"]=id.ToString(),["VerifiedBuild"]="0"};

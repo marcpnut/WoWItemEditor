@@ -5,7 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public partial class MainWindow
 {
@@ -50,7 +50,7 @@ public partial class MainWindow
                         if(session.Scope.Kind=="Set")foreach(var row in session.Initial)Assert(TooltipData.Number(restored[row.Id],"SpellID")==row.SpellId&&TooltipData.Number(restored[row.Id],"Threshold")==row.Pieces,"Original set values restored");
                         await ContentEditing.SetOperationHiddenCoreAsync(db,tx,inactive,true);var hidden=await ContentEditing.ReadAsync(db,tx,opId);Assert(hidden.Hidden&&!hidden.Active,"Inactive content history can be removed");await ContentEditing.SetOperationHiddenCoreAsync(db,tx,hidden,false);inactive=await ContentEditing.ReadAsync(db,tx,opId);Assert(!inactive.Hidden,"Removed content history can be restored");
                         await ContentEditing.ToggleCoreAsync(db,tx,inactive);var reapplied=await ContentEditing.ReadAsync(db,tx,opId);Assert(reapplied.Active&&reapplied.Before==op.Before&&reapplied.After==op.After,"Reapply preserves both immutable versions");Assert((await Effective()).Keys.Order().SequenceEqual(effective.Keys.Order()),"Reapply restores the same record IDs");
-                        foreach(string audit in new[]{"foreverclassic_hotfixes.anocore_studio_changes","anocore_studio_backup.changes"}){using var check=new MySqlCommand($"SELECT COUNT(*) FROM {audit} WHERE Provenance=@source",db,tx);check.Parameters.AddWithValue("@source","AnoWoW Item Editor; operation "+opId);Assert(Convert.ToInt32(await check.ExecuteScalarAsync())==5,"Save/revert/reapply/removal/restoration audited and mirrored together");}
+                        foreach(string audit in new[]{$"{AppSettings.Current.HotfixDatabase}.anocore_studio_changes",$"{AppSettings.Current.BackupDatabase}.changes"}){using var check=new MySqlCommand($"SELECT COUNT(*) FROM {audit} WHERE Provenance=@source",db,tx);check.Parameters.AddWithValue("@source","WoWItemEditor Item Editor; operation "+opId);Assert(Convert.ToInt32(await check.ExecuteScalarAsync())==5,"Save/revert/reapply/removal/restoration audited and mirrored together");}
                         results.Add(new{session.Scope.Kind,session.Scope.EntityId,before=session.Initial.Count,after=draft.Length,checks="Save, native removal, shared effect preservation, stale conflict, revert, reapply, immutable versions and mirrored audit; all writes rolled back"});
                     }finally{await tx.RollbackAsync();}
                 }

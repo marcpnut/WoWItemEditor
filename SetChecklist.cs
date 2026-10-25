@@ -1,5 +1,5 @@
 using System.Text.Json;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 internal sealed record SetCheck(string Status,string Check,string Subject,string Detail,string Action,int ItemId=0,int SpellId=0);
 internal sealed record SetDropCheck(int ItemId,int Rows,string Summary,bool Consistent);
@@ -7,8 +7,8 @@ internal static class SetChecklist
 {
     internal static async Task<Dictionary<int,SetDropCheck>> LoadDrops(IEnumerable<int> items)
     {
-        int[] ids=items.Distinct().ToArray();using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);bool hasPolicies=await HotfixHistory.HasTable(db,"anocore_studio_backup","item_editor_world_drops");using var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
-        var loot=await WorldDrops.Query(db,tx,$"SELECT Item,Entry,Chance,GroupId,QuestRequired,LootMode FROM foreverclassic_world.creature_loot_template WHERE Item IN({WorldDrops.Ids(ids)}) AND Reference=0 ORDER BY Item,Entry");
+        int[] ids=items.Distinct().ToArray();using var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database);bool hasPolicies=await HotfixHistory.HasTable(db,$"{AppSettings.Current.BackupDatabase}","item_editor_world_drops");using var tx=await db.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
+        var loot=await WorldDrops.Query(db,tx,$"SELECT Item,Entry,Chance,GroupId,QuestRequired,LootMode FROM {AppSettings.Current.WorldDatabase}.creature_loot_template WHERE Item IN({WorldDrops.Ids(ids)}) AND Reference=0 ORDER BY Item,Entry");
         var policies=hasPolicies?await WorldDrops.Query(db,tx,$"SELECT ItemId,PlanJson FROM {WorldDrops.Metadata} WHERE ItemId IN({WorldDrops.Ids(ids)})"):[];
         await tx.CommitAsync();return ids.ToDictionary(id=>id,id=>{
             var rows=loot.Where(r=>r["Item"]==id.ToString()).ToArray();var policy=policies.FirstOrDefault(r=>r["ItemId"]==id.ToString());DropPlan? plan=null;string error="";

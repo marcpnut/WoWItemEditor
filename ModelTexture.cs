@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 // BLP2 first-mip decoder. Blocks follow the published DXT1/3/5 layouts.
 internal static class ModelTexture

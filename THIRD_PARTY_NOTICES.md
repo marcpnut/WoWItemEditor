@@ -23,3 +23,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+Additional notices for redistribution are included in THIRD_PARTY_LICENSES/: DBCD and DBCD.IO 2.3.1 (MIT), MySqlConnector 2.4.0 (MIT), DBDefsLib 1.1.0 (the NuGet package declares MIT; the upstream revision includes BSD-3-Clause code and CC BY-SA definitions, whose notices are retained), Microsoft Extensions 8.0.2 and the .NET/Windows Desktop runtime. Game assets and runtime definition caches are not bundled.

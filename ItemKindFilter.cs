@@ -1,6 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 internal sealed record ItemSubtypeChoice(int ClassId,int SubclassId,string Label)
 {
     public override string ToString()=>Label;

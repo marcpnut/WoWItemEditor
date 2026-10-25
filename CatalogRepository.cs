@@ -3,13 +3,13 @@ using System.IO;
 using System.Text;
 using DBCD.Providers;
 using MySqlConnector;
-namespace AnoWowItemEditor;
+namespace WoWItemEditor;
 
 public sealed record CatalogResult(List<CatalogItem> Items,int Overrides,string Server,TooltipData Tooltips,Dictionary<int,CatalogItem> Originals,TooltipData OriginalTooltips,HotfixHistory History);
 public sealed class CatalogRepository
 {
-    internal const string Db2Folder = @"C:\AnoCore\AnoCore-Server\data\dbc\enUS";
-    internal const string Database = "foreverclassic_hotfixes";
+    internal static string Db2Folder => AppSettings.Current.Db2Folder;
+    internal static string Database => $"{AppSettings.Current.HotfixDatabase}";
     private const uint SparseHash = 2442913102;
     public async Task<CatalogResult> LoadAsync()
     {
