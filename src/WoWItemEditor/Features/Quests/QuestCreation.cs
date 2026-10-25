@@ -3,9 +3,9 @@ using System.Text.Json;
 using MySqlConnector;
 using DBCD.Providers;
 namespace WoWItemEditor;
-
 internal sealed record QuestNpc(int Id,string Name,int MinLevel,int MaxLevel,int Faction)
 {
+    public string FactionName {get;set;}="Loading faction…";
     public string Level=>$"{MinLevel}–{MaxLevel}";
 }
 internal sealed record QuestNpcSource(QuestNpc Npc,Dictionary<string,string?> Template,List<Dictionary<string,string?>> Models,List<Dictionary<string,string?>> Equipment)
@@ -17,13 +17,12 @@ internal sealed record QuestPlacement(ulong CharacterId,string CharacterName,int
     internal string PositionKey=>FormattableString.Invariant($"{CharacterId}/{Map}/{Zone}/{X:R}/{Y:R}/{Z:R}/{Facing:R}/{LogoutTime}");
     public string Summary=>FormattableString.Invariant($"{CharacterName} · map {Map}, zone {Zone}\nX {X:F3} · Y {Y:F3} · Z {Z:F3} · facing {Facing:F5} radians ({Facing*180/Math.PI:F1}°)");
 }
-internal sealed record QuestDraft(string NpcName,string Title,string Summary,string Description,string RewardText,int Level,int MinLevel,int RewardItem,int RewardCount,bool GroundConfirmed);
+internal sealed record QuestDraft(string NpcName,string Title,string Summary,string Description,string RewardText,int Level,int MinLevel,int RewardItem,int RewardCount,bool GroundConfirmed,int Experience=0,int MoneyCopper=0);
 internal sealed record QuestCreationResult(int NpcId,ulong SpawnId,int QuestId,string OperationId);
-
 internal static class QuestCreation
 {
     internal static string World=>AppSettings.Current.WorldDatabase;
-    private static string History=>AppSettings.Current.BackupDatabase+".quest_editor_creations";
+    internal static string History=>AppSettings.Current.BackupDatabase+".quest_editor_creations";
     // Only ordinary, non-scripted existing quest starters. Encounter and difficulty variants are excluded independently of rank.
     internal const string EligibleSql="(c.npcflag & 2)<>0 AND c.rank=0 AND c.minlevel>=1 AND c.maxlevel BETWEEN c.minlevel AND 60 AND (c.type_flags & 2147483652)=0 AND (c.flags_extra & 268435584)=0 AND c.RacialLeader=0 AND c.VehicleId=0 AND COALESCE(c.ScriptName,'')='' AND c.HealthModifier BETWEEN 0.01 AND 100 AND c.DamageModifier BETWEEN 0.01 AND 10 AND EXISTS(SELECT 1 FROM {0}.creature_queststarter qs WHERE qs.id=c.entry) AND EXISTS(SELECT 1 FROM {0}.creature_template_model m WHERE m.CreatureID=c.entry AND m.CreatureDisplayID>0) AND NOT EXISTS(SELECT 1 FROM {0}.instance_encounters e WHERE e.creditType=0 AND e.creditEntry=c.entry) AND NOT EXISTS(SELECT 1 FROM {0}.creature_template v WHERE c.entry IN(v.difficulty_entry_1,v.difficulty_entry_2,v.difficulty_entry_3))";
     private static int N(IReadOnlyDictionary<string,string?> row,string name)=>int.TryParse(row.GetValueOrDefault(name),out int n)?n:0;
@@ -62,6 +61,7 @@ internal static class QuestCreation
     internal static void Validate(QuestDraft draft,QuestPlacement p)
     {
         ValidatePosition(p);
+        if(draft.Experience is <0 or >100000||draft.MoneyCopper is <0 or >10000000)throw new InvalidOperationException("XP must be 0–100,000; gold must be 0–1,000.");
         if(!draft.GroundConfirmed)throw new InvalidOperationException("Confirm that the character was standing on solid ground at the intended location and facing before logging out.");
         if(DateTime.UtcNow-p.CapturedUtc>TimeSpan.FromMinutes(30)||p.CapturedUtc>DateTime.UtcNow.AddMinutes(1))throw new InvalidOperationException("Capture the character location again; the captured position has expired.");
         if(string.IsNullOrWhiteSpace(draft.NpcName)||draft.NpcName.Length>100||draft.NpcName.Any(char.IsControl)||string.IsNullOrWhiteSpace(draft.Title)||draft.Title.Length>120||draft.Title.Any(char.IsControl))throw new InvalidOperationException("Enter an NPC name (1–100 characters) and quest title (1–120 characters), without control characters.");
@@ -81,10 +81,15 @@ internal static class QuestCreation
         using(var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database)){await ContentEditing.InitializeAsync(db);await Initialize(db);}
         return await ContentEditing.Transaction((db,tx)=>SaveCore(db,tx,source,draft,placement));
     }
+    internal static async Task<(int Index,float Multiplier)> RewardScale(string table,int level,int amount)
+    {
+        if(amount==0)return (0,0);var rows=await ItemModelAssets.Shared.Table(table);if(!rows.TryGetValue(level,out var row))throw new InvalidOperationException("Reward level is unavailable in "+table);
+        var candidates=Enumerable.Range(1,10).Select(n=>(Index:n-1,Value:TooltipData.Number(row,"Difficulty"+n))).Where(v=>v.Value>0).OrderBy(v=>Math.Abs(v.Value-amount)).ToArray();if(candidates.Length==0)throw new InvalidOperationException("Reward scaling data is unavailable.");var chosen=candidates[0];float multiplier=(float)amount/chosen.Value;if(!float.IsFinite(multiplier)||multiplier>10000000)throw new InvalidOperationException("Reward multiplier exceeds the supported range.");return(chosen.Index,multiplier);
+    }
     private static string S(object n)=>Convert.ToString(n,CultureInfo.InvariantCulture)??"";
     private static async Task<int> Next(MySqlConnection db,MySqlTransaction tx,string table,string key)
     {
-        using var cmd=new MySqlCommand($"SELECT COALESCE(MAX({key}),0)+1 FROM {World}.{table}",db,tx);return checked(Convert.ToInt32(await cmd.ExecuteScalarAsync()));
+        using var cmd=new MySqlCommand($"SELECT GREATEST(COALESCE((SELECT MAX({key}) FROM {World}.{table}),0),COALESCE((SELECT MAX({(table=="quest_template"?"QuestId":"NpcId")}) FROM {History}),0))+1",db,tx);return checked(Convert.ToInt32(await cmd.ExecuteScalarAsync()));
     }
     internal static async Task<QuestCreationResult> SaveCore(MySqlConnection db,MySqlTransaction tx,QuestNpcSource source,QuestDraft draft,QuestPlacement placement)
     {
@@ -92,13 +97,14 @@ internal static class QuestCreation
         var livePosition=await Capture(placement.CharacterId,db,tx,true);if(livePosition.PositionKey!=placement.PositionKey)throw new InvalidOperationException("The character location changed. Capture and review it again.");
         var reward=await ItemEditing.LoadAsync(draft.RewardItem,db,tx);if(reward.Calculations.ServerProblems(reward.Current).Count>0)throw new InvalidOperationException("The reward item has unsupported server scaling data. Correct it before using it as a reward.");
         int unique=reward.Current.Number("MaxCount");if(unique>0&&draft.RewardCount>unique)throw new InvalidOperationException("Reward quantity exceeds this item's unique limit.");
-        int npc=await Next(db,tx,"creature_template","entry"),quest=await Next(db,tx,"quest_template","ID");using var spawnMax=new MySqlCommand($"SELECT COALESCE(MAX(guid),0)+1 FROM {World}.creature",db,tx);ulong spawn=Convert.ToUInt64(await spawnMax.ExecuteScalarAsync());
+        int npc=await Next(db,tx,"creature_template","entry"),quest=await Next(db,tx,"quest_template","ID");using var spawnMax=new MySqlCommand($"SELECT GREATEST(COALESCE((SELECT MAX(guid) FROM {World}.creature),0),COALESCE((SELECT MAX(SpawnId) FROM {History}),0))+1",db,tx);ulong spawn=Convert.ToUInt64(await spawnMax.ExecuteScalarAsync());
         var template=new Dictionary<string,string?>(source.Template,StringComparer.OrdinalIgnoreCase){["entry"]=S(npc),["name"]=draft.NpcName.Trim(),["femaleName"]=draft.NpcName.Trim(),["subname"]="",["TitleAlt"]="",["IconName"]="",["gossip_menu_id"]="0",["npcflag"]="2",["AIName"]="",["ScriptName"]="",["StringId"]=null,["rank"]="0",["RacialLeader"]="0",["VehicleId"]="0",["MovementType"]="0",["movementId"]="0",["lootid"]="0",["pickpocketloot"]="0",["skinloot"]="0",["mingold"]="0",["maxgold"]="0",["KillCredit1"]="0",["KillCredit2"]="0",["difficulty_entry_1"]="0",["difficulty_entry_2"]="0",["difficulty_entry_3"]="0",["dynamicflags"]="0",["VerifiedBuild"]="0"};
         await BonusSpells.WriteAsync(db,tx,World+".creature_template",template);
         foreach(var original in source.Models){var copy=new Dictionary<string,string?>(original){["CreatureID"]=S(npc)};await BonusSpells.WriteAsync(db,tx,World+".creature_template_model",copy);}
         foreach(var original in source.Equipment){var copy=new Dictionary<string,string?>(original){["CreatureID"]=S(npc)};await BonusSpells.WriteAsync(db,tx,World+".creature_equip_template",copy);}
         await BonusSpells.WriteAsync(db,tx,World+".creature",new(){["guid"]=S(spawn),["id"]=S(npc),["map"]=S(placement.Map),["zoneId"]=S(placement.Zone),["spawnDifficulties"]="0",["position_x"]=S(placement.X),["position_y"]=S(placement.Y),["position_z"]=S(placement.Z),["orientation"]=S(placement.Facing),["spawntimesecs"]="120",["wander_distance"]="0",["MovementType"]="0",["curhealth"]="1",["equipment_id"]=source.Equipment.Count>0?"-1":"0"});
-        await BonusSpells.WriteAsync(db,tx,World+".quest_template",new(){["ID"]=S(quest),["QuestType"]="2",["QuestLevel"]=S(draft.Level),["MinLevel"]=S(draft.MinLevel),["QuestSortID"]=placement.Zone is >0 and <=32767?S(placement.Zone):"0",["LogTitle"]=draft.Title.Trim(),["LogDescription"]=draft.Summary,["QuestDescription"]=draft.Description,["QuestCompletionLog"]="Return to "+draft.NpcName.Trim()+".",["RewardItem1"]=S(draft.RewardItem),["RewardAmount1"]=S(draft.RewardCount),["RewardXPMultiplier"]="0",["RewardMoneyMultiplier"]="0",["Flags"]="0",["FlagsEx"]="0",["FlagsEx2"]="0"});
+        var xp=await RewardScale("QuestXP",draft.Level,draft.Experience);var money=await RewardScale("QuestMoneyReward",draft.Level,draft.MoneyCopper);
+        await BonusSpells.WriteAsync(db,tx,World+".quest_template",new(){["ID"]=S(quest),["QuestType"]="2",["QuestLevel"]=S(draft.Level),["MinLevel"]=S(draft.MinLevel),["QuestSortID"]=placement.Zone is >0 and <=32767?S(placement.Zone):"0",["LogTitle"]=draft.Title.Trim(),["LogDescription"]=draft.Summary,["QuestDescription"]=draft.Description,["QuestCompletionLog"]="Return to "+draft.NpcName.Trim()+".",["RewardItem1"]=S(draft.RewardItem),["RewardAmount1"]=S(draft.RewardCount),["RewardXPDifficulty"]=S(xp.Index),["RewardXPMultiplier"]=S(xp.Multiplier),["RewardMoneyDifficulty"]=S(money.Index),["RewardMoneyMultiplier"]=S(money.Multiplier),["AllowableRaces"]=ulong.MaxValue.ToString(CultureInfo.InvariantCulture),["Flags"]="0",["FlagsEx"]="0",["FlagsEx2"]="0"});
         await BonusSpells.WriteAsync(db,tx,World+".quest_template_addon",new(){["ID"]=S(quest),["SpecialFlags"]="0",["ScriptName"]=""});
         await BonusSpells.WriteAsync(db,tx,World+".quest_offer_reward",new(){["ID"]=S(quest),["RewardText"]=draft.RewardText});
         await BonusSpells.WriteAsync(db,tx,World+".quest_request_items",new(){["ID"]=S(quest),["CompletionText"]="Speak to "+draft.NpcName.Trim()+" to complete this quest."});

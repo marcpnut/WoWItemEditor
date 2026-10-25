@@ -1,0 +1,10 @@
+using System.Windows;
+using System.Windows.Controls;
+namespace WoWItemEditor;
+internal sealed class QuestItemFilter : StackPanel
+{
+    private readonly ItemKindFilter kind;private readonly ComboBox quality=new(),slot=new();private readonly TextBox low=new(){Width=65},high=new(){Width=65},requiredLow=new(){Width=65},requiredHigh=new(){Width=65};
+    internal event Action? Changed;
+    internal QuestItemFilter(TooltipData data){kind=new(data,true);Children.Add(kind);kind.Changed+=()=>Changed?.Invoke();var row=new WrapPanel();Children.Add(row);quality.ItemsSource=new[]{new FilterChoice(-1,"All rarities")}.Concat(CatalogItem.Qualities.Select((n,i)=>new FilterChoice(i,n)));quality.SelectedIndex=0;slot.ItemsSource=new[]{new FilterChoice(-1,"All slots")}.Concat(CatalogItem.Slots.Select(p=>new FilterChoice(p.Key,p.Value)));slot.SelectedIndex=0;foreach(var control in new Control[]{quality,slot,low,high}){control.Margin=new Thickness(0,0,8,8);row.Children.Add(control);}low.ToolTip="Minimum item level";high.ToolTip="Maximum item level";row.Children.Add(DesignerWindow.Text("Min / max item level",11));quality.SelectionChanged+=(_,_)=>Changed?.Invoke();slot.SelectionChanged+=(_,_)=>Changed?.Invoke();low.TextChanged+=(_,_)=>Changed?.Invoke();high.TextChanged+=(_,_)=>Changed?.Invoke();var required=new WrapPanel();Children.Add(required);required.Children.Add(DesignerWindow.Text("Required level: min / max",11));foreach(var edit in new[]{requiredLow,requiredHigh}){edit.Margin=new Thickness(8,0,0,8);required.Children.Add(edit);edit.TextChanged+=(_,_)=>Changed?.Invoke();}}
+    internal bool Matches(CatalogItem item)=>kind.Matches(item)&&(quality.SelectedItem is not FilterChoice q||q.Id<0||q.Id==item.Quality)&&(slot.SelectedItem is not FilterChoice s||s.Id<0||s.Id==item.Slot)&&(!int.TryParse(low.Text,out int a)||item.ItemLevel>=a)&&(!int.TryParse(high.Text,out int b)||item.ItemLevel<=b)&&(!int.TryParse(requiredLow.Text,out int c)||item.RequiredLevel>=c)&&(!int.TryParse(requiredHigh.Text,out int d)||item.RequiredLevel<=d);
+}
