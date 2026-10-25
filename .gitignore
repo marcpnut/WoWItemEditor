@@ -16,7 +16,7 @@ settings*.json
 *.pfx
 *.pem
 *.key
-data/
-Data/
+/data/
+/Data/
 ModelCache/
 publish/
