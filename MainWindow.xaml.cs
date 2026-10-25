@@ -22,6 +22,8 @@ public partial class MainWindow : Window
     private CharacterSnapshot? characterSnapshot;
     private List<CharacterItemRow> characterItems=[];
     private bool characterMode;
+    private bool startingUp;
+    private Task? startupTask;
     private int characterRequest;
     private int previewLevel=60;
     private bool settingCharacterList;
@@ -36,7 +38,13 @@ public partial class MainWindow : Window
         ItemType.ItemsSource = new[] { new FilterChoice(-1,"All item types") }.Concat(CatalogItem.Classes.Select(p=>new FilterChoice(p.Key,p.Value)));
         Rarity.SelectedIndex=Slot.SelectedIndex=ItemType.SelectedIndex=0;
         filterTimer.Tick += (_,_)=> { filterTimer.Stop(); ApplyFilters(); };
-        Loaded += async (_,_)=>await LoadCatalog();
+        Loaded += async (_,_)=>{if(Environment.GetCommandLineArgs().Contains("--verify-startup"))await VerifyStartup();else if(verify)await LoadCatalog();else await (startupTask??=StartWorkspace());};
+    }
+    private async Task StartWorkspace()
+    {
+        startingUp=true;CharacterNav.IsChecked=true;startingUp=false;
+        var catalogs=LoadCatalog();var heroes=LoadCharacters();var spells=WarmReferences();
+        await Task.WhenAll(catalogs,heroes,spells);
     }
     private async Task LoadCatalog()
     {
@@ -49,14 +57,14 @@ public partial class MainWindow : Window
             tooltipData=result.Tooltips;ItemKinds.Bind(ItemSubtype,tooltipData,(ItemType.SelectedItem as FilterChoice)?.Id??-1);
             catalogById=items.ToDictionary(i=>i.Id);ItemVisualPreview.PreviewCatalog=catalogById;armory.RefreshCatalog(result);CatalogSearch.Configure(result.Tooltips);
             BindHistory(result);
-            if(characterSnapshot is not null)characterItems=CharacterRows(characterSnapshot);
+            if(characterSnapshot is not null){characterItems=CharacterRows(characterSnapshot);if(armory.Profile is null)await armory.Bind(characterSnapshot,result,previewLevel);}
             int previousSet=(SetFilter.SelectedItem as FilterChoice)?.Id??-1;
             var sets=new[]{new FilterChoice(-1,"All equipment sets")}.Concat(tooltipData.Sets.Values.Where(s=>s.Members.Length>0).OrderBy(s=>s.Name).ThenBy(s=>s.Id).Select(s=>new FilterChoice(s.Id,$"{s.Name} · Set {s.Id} · {s.Members.Length} pieces"))).ToList();
             SetFilter.ItemsSource=sets;SetFilter.SelectedItem=sets.FirstOrDefault(s=>s.Id==previousSet)??sets[0];
             BindItems();
             SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
-            if(verify){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-skins")){await VerifySkins(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-saved-appearances")){await VerifySavedAppearances(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-races")){await VerifyRaces(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
+            if(verify&&!Environment.GetCommandLineArgs().Contains("--verify-startup")){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-skins")){await VerifySkins(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-saved-appearances")){await VerifySavedAppearances(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-races")){await VerifyRaces(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
         }
         catch(Exception ex)
         {
@@ -65,6 +73,7 @@ public partial class MainWindow : Window
             if(verify) { Directory.CreateDirectory("artifacts"); await File.WriteAllTextAsync("artifacts/verification-error.txt",ex.ToString()); Environment.ExitCode=1; Close(); }
         }
         finally { Reload.IsEnabled=true; }
+        if(!verify&&references is null)_=WarmReferences();
     }
     private void FilterChanged(object sender,RoutedEventArgs e)
     {
@@ -153,7 +162,7 @@ public partial class MainWindow : Window
         CharacterControls.Visibility=LocationColumn.Visibility=CountColumn.Visibility=characterMode?Visibility.Visible:Visibility.Collapsed;
         if(characterMode) {
             BindItems();
-            if(characters.Count==0)await LoadCharacters();
+            if(characters.Count==0&&!startingUp)await LoadCharacters();
             else CharacterSummary.Text=characterSnapshot is null?"Select a saved character.":$"{characterSnapshot.Character.Name} · saved level {characterSnapshot.Character.Level} · {characterItems.Count} instances";
         } else if(isItem){CharacterSummary.Text="Preview only · no character or item changes are saved";BindItems();}
     }

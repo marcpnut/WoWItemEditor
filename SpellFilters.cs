@@ -25,13 +25,16 @@ internal sealed class SpellFilters : WrapPanel
         Description.ItemsSource=new[]{new FilterChoice(-1,"All descriptions"),new(1,"Has description"),new(0,"Missing description")};
         Trigger.DisplayMemberPath="";Trigger.ItemsSource=new[]{"All triggers"};Effect.ItemsSource=new[]{new FilterChoice(-1,"All effect types")};Aura.ItemsSource=new[]{new FilterChoice(-1,"All aura types")};EnableTypeSearch(Effect,()=>allEffects);EnableTypeSearch(Aura,()=>allAuras);Reset();
     }
+    private sealed record Options(List<string> Triggers,List<FilterChoice> Effects,List<FilterChoice> Auras);
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object,Options> options=new();
+    internal static void Prepare(IEnumerable<ReferenceEntry> entries)=>_ = OptionsFor(entries);
+    private static Options OptionsFor(IEnumerable<ReferenceEntry> entries)=>options.GetValue(entries,_=>new(new[]{"All triggers"}.Concat(entries.SelectMany(e=>e.Triggers).Distinct().Order().Select(t=>t=="—"?"No item-effect template":t)).ToList(),new[]{new FilterChoice(-1,"All effect types")}.Concat(entries.SelectMany(e=>e.EffectTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Effect(n)))).ToList(),new[]{new FilterChoice(-1,"All aura types")}.Concat(entries.SelectMany(e=>e.AuraTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Aura(n)))).ToList()));
     internal void Bind(IEnumerable<ReferenceEntry> entries)
     {
-        int effect=Selected(Effect),aura=Selected(Aura);string? trigger=Trigger.SelectedItem as string;editingOptions=true;Trigger.ItemsSource=new[]{"All triggers"}.Concat(entries.SelectMany(e=>e.Triggers).Distinct().Order().Select(t=>t=="—"?"No item-effect template":t)).ToList();Trigger.SelectedItem=Trigger.Items.Contains(trigger)?trigger:Trigger.Items[0];editingOptions=false;
-        allEffects=new[]{new FilterChoice(-1,"All effect types")}.Concat(entries.SelectMany(s=>s.EffectTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Effect(n)))).ToList();
-        allAuras=new[]{new FilterChoice(-1,"All aura types")}.Concat(entries.SelectMany(s=>s.AuraTypes).Distinct().Order().Select(n=>new FilterChoice(n,SpellTypeNames.Aura(n)))).ToList();
-        Effect.ItemsSource=allEffects;Aura.ItemsSource=allAuras;Effect.SelectedItem=Effect.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==effect)??Effect.Items[0];Aura.SelectedItem=Aura.Items.Cast<FilterChoice>().FirstOrDefault(c=>c.Id==aura)??Aura.Items[0];
+        int effect=Selected(Effect),aura=Selected(Aura);string? trigger=Trigger.SelectedItem as string;var prepared=OptionsFor(entries);editingOptions=true;
+        try{Trigger.ItemsSource=prepared.Triggers;Trigger.SelectedItem=Trigger.Items.Contains(trigger)?trigger:Trigger.Items[0];allEffects=prepared.Effects;allAuras=prepared.Auras;Effect.ItemsSource=allEffects;Aura.ItemsSource=allAuras;Effect.SelectedItem=allEffects.FirstOrDefault(c=>c.Id==effect)??allEffects[0];Aura.SelectedItem=allAuras.FirstOrDefault(c=>c.Id==aura)??allAuras[0];}finally{editingOptions=false;}
     }
+
     private void EnableTypeSearch(ComboBox box,Func<List<FilterChoice>> choices)
     {
         box.IsEditable=true;box.IsTextSearchEnabled=false;box.StaysOpenOnEdit=true;box.ToolTip="Type a name or ID to narrow choices, then select a type.";

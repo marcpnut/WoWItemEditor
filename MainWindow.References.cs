@@ -10,6 +10,21 @@ public partial class MainWindow
     private ReferenceCatalog? references;
     private Task<ReferenceCatalog>? referenceLoad;
     private string? referenceMode;
+    private bool bindingReferences;
+    private string referenceWarmStatus="";
+    private int referenceLoads;
+    private async Task<ReferenceCatalog> EnsureReferences()
+    {
+        if(references is not null)return references;
+        int generation=referenceGeneration;var pending=referenceLoad??=Task.Run(async()=>{var loaded=await ReferenceCatalog.LoadAsync();SpellFilters.Prepare(loaded.Spells);SpellFilters.Prepare(loaded.Procs);return loaded;});
+        try{var result=await pending;if(references is null&&generation==referenceGeneration&&ReferenceEquals(referenceLoad,pending)){references=result;referenceWarmStatus="Spell and proc catalogs ready";referenceLoads++;}return result;}catch{if(ReferenceEquals(referenceLoad,pending))referenceLoad=null;throw;}
+    }
+    private void InvalidateReferences(){referenceGeneration++;references=null;referenceLoad=null;}
+    private async Task WarmReferences()
+    {
+        try{referenceWarmStatus="Loading spell and proc catalogs in background…";await EnsureReferences();}catch(Exception ex){referenceWarmStatus="Spell/proc preload failed: "+ex.Message;}
+        Reload.ToolTip=referenceWarmStatus;
+    }
     private int referenceGeneration;
     private TextBox referenceSearch=null!,referenceDetails=null!;
     private TextBlock referenceCount=null!;
@@ -39,20 +54,21 @@ public partial class MainWindow
     private async Task ShowReferencePage(string page,bool refresh=false)
     {
         if(referenceSearch is null)BuildReferencePage();
+        bindingReferences=true;
         if(referenceMode!=page){referenceSearch!.Clear();referenceFilters.Reset();}
         referenceMode=page;historyMode=characterMode=false;HistoryPage.Visibility=CatalogPage.Visibility=Placeholder.Visibility=Visibility.Collapsed;ReferencePage.Visibility=Visibility.Visible;
         PageTitle.Text=page;PageSubtitle.Text=page=="Spell catalog"?"All spells, including set bonuses. Select a spell to inspect it or edit a set that uses it.":"Configured item effects and spells with proc rules. Use the Spell catalog for all other spells.";
         Reload.Visibility=Visibility.Visible;Reload.Content="↻   Refresh references";
         try{
-            if(refresh){references=null;referenceLoad=null;referenceGeneration++;}
-            if(references is null){referenceCount.Text="Loading installed spell tables and active MariaDB hotfixes…";referenceView=null;referenceGrid.ItemsSource=null;referenceDetails.Clear();int generation=referenceGeneration;referenceLoad??=ReferenceCatalog.LoadAsync();var loaded=await referenceLoad;if(generation!=referenceGeneration)return;references=loaded;}
+            if(refresh)InvalidateReferences();
+            if(references is null){referenceCount.Text="Loading installed spell tables and active MariaDB hotfixes…";referenceView=null;referenceGrid.ItemsSource=null;referenceDetails.Clear();int generation=referenceGeneration;var loaded=await EnsureReferences();if(generation!=referenceGeneration)return;references=loaded;}
             if(referenceMode!=page)return;
-            referenceFilters.Bind(page=="Spell catalog"?references.Spells:references.Procs);referenceView=CollectionViewSource.GetDefaultView(page=="Spell catalog"?references.Spells:references.Procs);referenceGrid.ItemsSource=referenceView;FilterReferences();
-        }catch(Exception ex){referenceLoad=null;if(referenceMode==page)referenceCount.Text="Could not load references: "+ex.Message;}
+            referenceFilters.Bind(page=="Spell catalog"?references.Spells:references.Procs);referenceView=CollectionViewSource.GetDefaultView(page=="Spell catalog"?references.Spells:references.Procs);referenceGrid.ItemsSource=referenceView;bindingReferences=false;FilterReferences();
+        }catch(Exception ex){if(referenceMode==page)referenceCount.Text="Could not load references: "+ex.Message;}finally{bindingReferences=false;}
     }
     private void FilterReferences()
     {
-        if(referenceView is null)return;string query=referenceSearch.Text.Trim();bool exactId=int.TryParse(query,out int id)&&id>0;
+        if(bindingReferences||referenceView is null)return;string query=referenceSearch.Text.Trim();bool exactId=int.TryParse(query,out int id)&&id>0;
         referenceView.Filter=value=>value is ReferenceEntry entry&&(exactId&&(entry.SpellId==id||referenceMode=="Proc catalog"&&entry.EffectId==id)||entry.Matches(query)&&referenceFilters.Matches(entry));
         referenceCount.Text=$"{referenceView.Cast<ReferenceEntry>().Count():N0} shown · "+(exactId?"Direct ID matches ignore filters · ":"")+"Installed DB2 + active MariaDB hotfixes";
         if(referenceGrid.SelectedItem is null||!referenceView.Contains(referenceGrid.SelectedItem))referenceGrid.SelectedIndex=referenceView.IsEmpty?-1:0;ShowReferenceSelection();

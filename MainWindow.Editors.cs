@@ -5,15 +5,15 @@ public partial class MainWindow
 {
     private bool editorLoading;
     private async Task EditCharacterItem(int id){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var editor=new ItemEditorWindow(loadedCatalog,id){Owner=this};editor.ShowDialog();if(editor.Saved)await LoadCatalog();}catch(Exception ex){Status.Text="Could not edit item: "+ex.Message;}finally{editorLoading=false;}}
-    private async void OpenSetAnalysis(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? set=(ItemsGrid.SelectedItem as CatalogItem)?.Number("ItemSet");var preview=new SetAnalysisWindow(loadedCatalog,set>0?set:null){Owner=this};preview.ShowDialog();if(preview.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text=ex.Message;}finally{editorLoading=false;}}
-    private async void OpenCreatedSets(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var window=new CreatedSetsWindow(loadedCatalog,await EditorReferences()){Owner=this};window.ShowDialog();if(window.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open created sets: "+ex.Message;}finally{editorLoading=false;}}
+    private async void OpenSetAnalysis(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? set=(ItemsGrid.SelectedItem as CatalogItem)?.Number("ItemSet");var preview=new SetAnalysisWindow(loadedCatalog,set>0?set:null){Owner=this};preview.ShowDialog();if(preview.Saved){InvalidateReferences();await LoadCatalog();}}catch(Exception ex){Status.Text=ex.Message;}finally{editorLoading=false;}}
+    private async void OpenCreatedSets(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var window=new CreatedSetsWindow(loadedCatalog,await EditorReferences()){Owner=this};window.ShowDialog();if(window.Saved){InvalidateReferences();await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open created sets: "+ex.Message;}finally{editorLoading=false;}}
     private async void OpenSetCreator(object sender,RoutedEventArgs e)
     {
-        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var creator=new SetCreatorWindow(loadedCatalog,await EditorReferences()){Owner=this};creator.ShowDialog();if(creator.Result is {} result){references=null;referenceLoad=null;await LoadCatalog();var designer=new DesignerWindow(loadedCatalog!,result.Items[0],2){Owner=this};designer.SelectCreatedSet(result.SetId);designer.ShowDialog();if(designer.Saved)await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open set creator: "+ex.Message;}finally{editorLoading=false;}
+        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var creator=new SetCreatorWindow(loadedCatalog,await EditorReferences()){Owner=this};creator.ShowDialog();if(creator.Result is {} result){InvalidateReferences();await LoadCatalog();var designer=new DesignerWindow(loadedCatalog!,result.Items[0],2){Owner=this};designer.SelectCreatedSet(result.SetId);designer.ShowDialog();if(designer.Saved)await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open set creator: "+ex.Message;}finally{editorLoading=false;}
     }
     private async void OpenDesigner(object sender,RoutedEventArgs e)
     {
-        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? id=(ItemsGrid.SelectedItem as CatalogItem)?.Id??(ItemsGrid.SelectedItem as CharacterItemRow)?.Item.Id;var window=new DesignerWindow(loadedCatalog,id){Owner=this};window.ShowDialog();if(window.Saved){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open designer: "+ex.Message;}finally{editorLoading=false;}
+        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? id=(ItemsGrid.SelectedItem as CatalogItem)?.Id??(ItemsGrid.SelectedItem as CharacterItemRow)?.Item.Id;var window=new DesignerWindow(loadedCatalog,id){Owner=this};window.ShowDialog();if(window.Saved){InvalidateReferences();await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open designer: "+ex.Message;}finally{editorLoading=false;}
     }
     private void EditItemDoubleClick(object sender,System.Windows.Input.MouseButtonEventArgs e){if(ItemsGrid.SelectedItem is not null)OpenItemEditor(sender,new RoutedEventArgs());}
     private async void OpenItemEditor(object sender,RoutedEventArgs e)
@@ -24,7 +24,7 @@ public partial class MainWindow
     private async Task<ReferenceCatalog> EditorReferences()
     {
         if(references is not null)return references;
-        referenceLoad??=ReferenceCatalog.LoadAsync();try{references=await referenceLoad;return references;}catch{referenceLoad=null;throw;}
+        return await EnsureReferences();
     }
     private async void OpenSetEditor(object sender,RoutedEventArgs e)=>await OpenEditor("Set");
     private async void OpenWeaponEditor(object sender,RoutedEventArgs e)=>await OpenEditor("Proc");
@@ -34,18 +34,18 @@ public partial class MainWindow
         var sets=loadedCatalog.Tooltips.Sets.Values.Where(s=>spell.SetIds.Contains(s.Id)).ToList();
         if(sets.Count==0){Status.Text=$"Spell {spell.SpellId} is not assigned to a set. Open Set bonuses to add it to a set first.";return;}
         editorLoading=true;try{int id=sets[0].Id;if(sets.Count>1){var picker=new Window{Title="Choose the set to edit",Width=460,Height=190,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Background};var panel=new System.Windows.Controls.StackPanel{Margin=new Thickness(20)};picker.Content=panel;var combo=new System.Windows.Controls.ComboBox{ItemsSource=sets.Select(s=>new ContentChoice(s.Id,s.Name)).ToList(),DisplayMemberPath="Label",SelectedIndex=0};panel.Children.Add(combo);var select=new System.Windows.Controls.Button{Content="Edit selected set",Margin=new Thickness(0,14,0,0)};select.Click+=(_,_)=>picker.DialogResult=true;panel.Children.Add(select);if(picker.ShowDialog()!=true)return;id=((ContentChoice)combo.SelectedItem).Id;}
-            var editor=new ContentEditorWindow("Set",loadedCatalog,await EditorReferences(),id,spell.SpellId){Owner=this};editor.ShowDialog();if(editor.Saved){references=null;referenceLoad=null;referenceGeneration++;await LoadCatalog();if(referenceMode is not null)await ShowReferencePage(referenceMode,true);}
+            var editor=new ContentEditorWindow("Set",loadedCatalog,await EditorReferences(),id,spell.SpellId){Owner=this};editor.ShowDialog();if(editor.Saved){InvalidateReferences();await LoadCatalog();if(referenceMode is not null)await ShowReferencePage(referenceMode,true);}
         }catch(Exception ex){Status.Text="Could not open this set bonus: "+ex.Message;}finally{editorLoading=false;}
     }
     private async Task OpenEditor(string kind)
     {
         if(loadedCatalog is null||editorLoading)return;editorLoading=true;
         try{Status.Text="Loading spell references for the editor…";var refs=await EditorReferences();var selected=(ItemsGrid.SelectedItem as CatalogItem);int? id=kind=="Set"?selected?.Number("ItemSet"):selected?.ClassId==2?selected.Id:null;if(id==0)id=null;
-            var editor=new ContentEditorWindow(kind,loadedCatalog,refs,id){Owner=this};editor.ShowDialog();if(editor.Saved){references=null;referenceLoad=null;await LoadCatalog();}else SetCatalogStatus(loadedCatalog);
+            var editor=new ContentEditorWindow(kind,loadedCatalog,refs,id){Owner=this};editor.ShowDialog();if(editor.Saved){InvalidateReferences();await LoadCatalog();}else SetCatalogStatus(loadedCatalog);
         }catch(Exception ex){Status.Text="Could not open editor: "+ex.Message;}finally{editorLoading=false;}
     }
     private async void OpenContentHistory(object sender,RoutedEventArgs e)
     {
-        if(editorLoading)return;editorLoading=true;try{var history=new ContentHistoryWindow(await EditorReferences(),loadedCatalog){Owner=this};history.ShowDialog();if(history.Changed){references=null;referenceLoad=null;await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open edit history: "+ex.Message;}finally{editorLoading=false;}
+        if(editorLoading)return;editorLoading=true;try{var history=new ContentHistoryWindow(await EditorReferences(),loadedCatalog){Owner=this};history.ShowDialog();if(history.Changed){InvalidateReferences();await LoadCatalog();}}catch(Exception ex){Status.Text="Could not open edit history: "+ex.Message;}finally{editorLoading=false;}
     }
 }
