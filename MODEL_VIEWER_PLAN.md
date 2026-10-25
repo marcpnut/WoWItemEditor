@@ -24,3 +24,8 @@ Before reusing source or distributing a renderer, check its license and packagin
 ## Implemented character pass
 
 Static character rendering now resolves ChrRaceXChrModel/ChrModel displays, saved customization choices, body-material layers and regional armor textures. Equipment geosets, helmet hiding and attachment positions compose a complete compatible outfit. Shared previews expose item-only and on-character choices, while Characters provides a preview-only armory. Native WPF rotation uses Shift-drag trackball input alongside XYZ sliders. The enlarged window hides its own enlargement button. Dreadnaught and an actual saved character are read-only rendering fixtures. Animation, shader parity, some collection/customization models and live character equipment writes are outside this pass.
+
+
+## Racial and saved-appearance correction
+
+The character pass now samples client Stand tracks, follows skeleton parents, skins weighted body vertices and attaches gear with the full bone matrix. All selected customization geosets are retained, bare legs use the native default, native model/texture race fallbacks are respected and saved character appearance choices are validated. On character is a direct button to a large window with a minimum usable size. Continuous animation playback and shader parity remain future work.

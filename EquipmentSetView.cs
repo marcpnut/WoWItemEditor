@@ -67,7 +67,7 @@ internal sealed class EquipmentSetView : Grid
         var row=new DockPanel{Margin=new Thickness(4)};card.Child=row;var icon=new Border{Width=39,Height=41,Background=new SolidColorBrush(Color.FromRgb(15,18,24)),Margin=new Thickness(right?7:0,0,right?0:7,0)};DockPanel.SetDock(icon,right?Dock.Right:Dock.Left);row.Children.Add(icon);var symbol=new System.Windows.Shapes.Path{Data=Geometry.Parse(Symbol(slot)),Width=30,Height=32,Stretch=Stretch.Uniform,Fill=new SolidColorBrush(Color.FromRgb(31,38,48)),Stroke=Brushes.SlateGray,StrokeThickness=1.5,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};symbols[slot]=symbol;icon.Child=symbol;var text=new StackPanel{VerticalAlignment=VerticalAlignment.Center};labels[slot]=text;row.Children.Add(text);
         card.MouseLeftButtonDown+=(_,e)=>{if(equipped.TryGetValue(slot,out var item)){ActivateSlot(slot,e.ClickCount==2);e.Handled=true;}else{ClearSelection();heading.Text=GearDesign.EquipmentSlots[slot];TooltipView.Fill(tooltip,[new(GearDesign.EquipmentSlots[slot],ItemTooltip.Gold,Size:18),new("No item in this slot.",ItemTooltip.Gray)]);EmptySlotSelected?.Invoke(slot);}};
     }
-    private static string Symbol(int slot)=>slot switch{
+    internal static string Symbol(int slot)=>slot switch{
         0=>"M3,29 L3,13 Q4,1 16,1 Q28,1 29,13 L29,29 21,24 21,14 11,14 11,24 Z M14,2 L14,13 M18,2 L18,13",
         1=>"M4,2 Q-2,22 16,24 Q34,22 28,2 M16,24 L11,29 16,34 21,29 Z",
         2=>"M1,11 L9,3 16,10 23,3 31,11 29,24 20,20 16,13 12,20 3,24 Z",

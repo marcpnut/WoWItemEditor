@@ -30,7 +30,7 @@ public partial class MainWindow : Window
     public MainWindow(bool verify=false)
     {
         this.verify=verify;
-        InitializeComponent();ItemModelHost.Content=itemModel;CatalogCharacterHost.Content=catalogCharacter;ArmoryHost.Content=armory;InstallVisualPreview(OriginalHistoryScroll,OriginalHistoryTooltip);InstallVisualPreview(ModifiedHistoryScroll,ModifiedHistoryTooltip);
+        InitializeComponent();SetupItemRowTooltips();ItemModelHost.Content=itemModel;ArmoryHost.Content=armory;armory.EditRequested+=EditCharacterItem;armory.CatalogReloadRequested+=LoadCatalog;InstallVisualPreview(OriginalHistoryScroll,OriginalHistoryTooltip);InstallVisualPreview(ModifiedHistoryScroll,ModifiedHistoryTooltip);
         Rarity.ItemsSource = new[] { new FilterChoice(-1,"All rarities") }.Concat(CatalogItem.Qualities.Select((name,id)=>new FilterChoice(id,name)));
         Slot.ItemsSource = new[] { new FilterChoice(-1,"All slots") }.Concat(CatalogItem.Slots.Select(p=>new FilterChoice(p.Key,p.Value)));
         ItemType.ItemsSource = new[] { new FilterChoice(-1,"All item types") }.Concat(CatalogItem.Classes.Select(p=>new FilterChoice(p.Key,p.Value)));
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
             var result=await new CatalogRepository().LoadAsync();
             items=result.Items;
             tooltipData=result.Tooltips;ItemKinds.Bind(ItemSubtype,tooltipData,(ItemType.SelectedItem as FilterChoice)?.Id??-1);
-            catalogById=items.ToDictionary(i=>i.Id);ItemVisualPreview.PreviewCatalog=catalogById;CatalogSearch.Configure(result.Tooltips);
+            catalogById=items.ToDictionary(i=>i.Id);ItemVisualPreview.PreviewCatalog=catalogById;armory.RefreshCatalog(result);CatalogSearch.Configure(result.Tooltips);
             BindHistory(result);
             if(characterSnapshot is not null)characterItems=CharacterRows(characterSnapshot);
             int previousSet=(SetFilter.SelectedItem as FilterChoice)?.Id??-1;
@@ -56,7 +56,7 @@ public partial class MainWindow : Window
             BindItems();
             SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
-            if(verify){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
+            if(verify){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-skins")){await VerifySkins(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-saved-appearances")){await VerifySavedAppearances(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-races")){await VerifyRaces(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
         }
         catch(Exception ex)
         {
@@ -144,7 +144,7 @@ public partial class MainWindow : Window
         characterMode=page=="Characters";ShowArmory();
         if(wasCharacter!=characterMode&&view is not null){ClearClick(this,new RoutedEventArgs());StorageFilter.SelectedIndex=0;}
         bool isItem=page=="Item catalog"||characterMode;
-        PageTitle.Text=page; PageSubtitle.Text=characterMode?"Browse saved equipment, bags, bank, mail, and void storage. Change the preview level to compare.":isItem ? "Explore your server’s items. Select a row to inspect its details." : "A home for your server’s "+(page=="Spell catalog" ? "spells." : "item procs.");
+        PageTitle.Text=page; PageSubtitle.Text=characterMode?"Your items on the left · your saved character and equipment slots on the right. Double-click any item to edit its shared definition.":isItem ? "Explore your server’s items. Select a row to inspect its details." : "A home for your server’s "+(page=="Spell catalog" ? "spells." : "item procs.");
         CatalogPage.Visibility=isItem?Visibility.Visible:Visibility.Collapsed;
         Placeholder.Visibility=isItem?Visibility.Collapsed:Visibility.Visible;
         Reload.Visibility=isItem?Visibility.Visible:Visibility.Collapsed;
@@ -253,7 +253,7 @@ public partial class MainWindow : Window
     private void SelectItem(object sender,SelectionChangedEventArgs e) => ShowTooltip(SelectedItem());
     private void ShowTooltip(CatalogItem? item)
     {
-        TooltipPanel.Children.Clear(); SourceLabel.Text="";if(CatalogPreviewTabs.SelectedIndex==1)itemModel.Bind(item);if(CatalogPreviewTabs.SelectedIndex==2)UpdateCatalogCharacter();
+        TooltipPanel.Children.Clear(); SourceLabel.Text="";if(characterMode)armory.Inspect(item);if(CatalogPreviewTabs.SelectedIndex==1)itemModel.Bind(item);UpdateCatalogCharacter();
         void Line(string text,string color="#FFFFFF",double size=13,bool bold=false) => TooltipPanel.Children.Add(new TextBlock { Text=text, Foreground=(Brush)new BrushConverter().ConvertFromString(color)!, FontSize=size, FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal, TextWrapping=TextWrapping.Wrap, Margin=new Thickness(0,0,0,5) });
         if(item is null) { Line("Select an item","#70B8FF",18); Line("Its tooltip will appear here.","#9299A5"); if(int.TryParse(PreviewLevel.Text,out int level)&&level==previewLevel)LevelFeedback.Text=$"Applied level {previewLevel} · select an item to see calculated values.";return; }
         var instance=characterMode?(ItemsGrid.SelectedItem as CharacterItemRow)?.Instance:null;

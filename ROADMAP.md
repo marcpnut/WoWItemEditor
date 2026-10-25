@@ -33,3 +33,7 @@ Implemented first 3D milestone: Item catalog now has a lazy textured standalone-
 - Added shared item/character preview tabs, static full-outfit texture composition, preview-only character armory swaps, Shift-trackball rotation and nested-enlargement prevention.
 - Expanded catalog searches across stored and readable fields; spell and proc catalogs share named Trigger filters.
 - Later renderer work: idle animations, shader/effect parity, collection model fidelity and more race/body fixtures.
+
+- Corrected character face/leg geosets, sampled standing poses, weighted skinning and racial equipment transforms. Added saved face/hair/skin validation and a direct large On character window; armory race/body is locked to the saved character.
+
+- Replaced Characters armory/inventory switching with one owned-items-left / 3D-paperdoll-right screen. Added all-gear try-on search and server-wide item editing from owned rows, equipment slots and gear results; gear swaps stay preview-only.
