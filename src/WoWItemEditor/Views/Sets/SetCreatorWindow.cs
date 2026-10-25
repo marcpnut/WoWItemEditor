@@ -7,6 +7,13 @@ namespace WoWItemEditor;
 
 internal sealed class SetCreatorWindow : Window
 {
+    private readonly ComboBox previewCharacter=new(){Width=220};
+    private bool choosingCharacter;
+    private int characterRequest;
+    internal Task PreviewLoading {get;private set;}=Task.CompletedTask;
+    internal Task ModelLoading=>equipment.ModelLoading;
+    internal CharacterScene? ModelScene=>equipment.ModelScene;
+    internal ModelCharacter? PreviewProfile=>equipment.PreviewProfile;
     private readonly CatalogResult catalog;
     private readonly ReferenceCatalog refs;
     private readonly ItemKindFilter itemKinds;
@@ -30,16 +37,27 @@ internal sealed class SetCreatorWindow : Window
     private readonly TaskCompletionSource ready=new();
     internal SetCreationResult? Result {get;private set;}
     internal Task Ready=>ready.Task;
-    internal SetCreatorWindow(CatalogResult catalog,ReferenceCatalog refs)
+    internal SetCreatorWindow(CatalogResult catalog,ReferenceCatalog refs,CharacterInfo? selectedCharacter=null)
     {
-        this.catalog=catalog;this.refs=refs;itemKinds=new(catalog.Tooltips,true);itemKinds.Changed+=FilterBases;Title="Set creator · new copies, original items preserved";Width=1500;Height=930;MinWidth=1200;MinHeight=780;Background=new SolidColorBrush(Color.FromRgb(35,36,40));WindowStartupLocation=WindowStartupLocation.CenterOwner;
+        equipment.EnableCharacterPreview();this.catalog=catalog;this.refs=refs;itemKinds=new(catalog.Tooltips,true);itemKinds.Changed+=FilterBases;Title="Set creator · new copies, original items preserved";Width=1500;Height=930;MinWidth=1200;MinHeight=780;Background=new SolidColorBrush(Color.FromRgb(35,36,40));WindowStartupLocation=WindowStartupLocation.CenterOwner;
         var root=new DockPanel{Margin=new Thickness(20),Background=Background};Content=root;var title=DesignerWindow.Text("CREATE A NEW SET",23);title.Foreground=Brushes.LightSkyBlue;DockPanel.SetDock(title,Dock.Top);root.Children.Add(title);
-        var controls=new WrapPanel{Margin=new Thickness(0,12,0,12)};DockPanel.SetDock(controls,Dock.Top);root.Children.Add(controls);Field(controls,"Set name",name);Field(controls,"Bulk item level (optional)",bulkLevel);Field(controls,"Bulk required level (optional)",bulkRequired);var bulk=DesignerWindow.Button("Apply levels to all copies",controls);bulk.VerticalAlignment=VerticalAlignment.Bottom;bulk.Click+=(_,_)=>ApplyBulk();Field(controls,"Drop chance % per piece",chance);chance.ToolTip="0.01% = 1 in 10,000 per eligible creature, per piece, before server rate multipliers.";var replan=DesignerWindow.Button("Refresh world drops",controls);replan.VerticalAlignment=VerticalAlignment.Bottom;replan.Click+=async(_,_)=>await RefreshWorld();
+        var controls=new WrapPanel{Margin=new Thickness(0,12,0,12)};DockPanel.SetDock(controls,Dock.Top);root.Children.Add(controls);Field(controls,"Set name",name);Field(controls,"Preview character · set gear only",previewCharacter);previewCharacter.SelectionChanged+=async(_,_)=>{if(!choosingCharacter)await (PreviewLoading=LoadPreviewCharacter());};Field(controls,"Bulk item level (optional)",bulkLevel);Field(controls,"Bulk required level (optional)",bulkRequired);var bulk=DesignerWindow.Button("Apply levels to all copies",controls);bulk.VerticalAlignment=VerticalAlignment.Bottom;bulk.Click+=(_,_)=>ApplyBulk();Field(controls,"Drop chance % per piece",chance);chance.ToolTip="0.01% = 1 in 10,000 per eligible creature, per piece, before server rate multipliers.";var replan=DesignerWindow.Button("Refresh world drops",controls);replan.VerticalAlignment=VerticalAlignment.Bottom;replan.Click+=async(_,_)=>await RefreshWorld();
         DockPanel.SetDock(feedback,Dock.Bottom);feedback.Margin=new Thickness(0,12,0,0);root.Children.Add(feedback);var actions=new DockPanel{Margin=new Thickness(0,12,0,0)};DockPanel.SetDock(actions,Dock.Bottom);root.Children.Add(actions);DockPanel.SetDock(create,Dock.Right);actions.Children.Add(create);actions.Children.Add(summary);root.Children.Add(body);body.Children.Add(tabs);tabs.Items.Add(new TabItem{Header="1 · Choose & edit copies",Content=ChoosePieces()});tabs.Items.Add(new TabItem{Header="2 · Set bonuses",Content=BonusPage()});tabs.Items.Add(new TabItem{Header="3 · World drops & review",Content=DropPage()});
         create.Click+=async(_,_)=>await Save();name.TextChanged+=(_,_)=>Render();pieces.SelectionChanged+=(_,_)=>RenderPiece();bonuses.SelectionChanged+=(_,_)=>{if(bonuses.SelectedItem is ContentRow row)threshold.Text=row.Pieces.ToString();Render();};
-        Loaded+=async(_,_)=>{await RefreshWorld();ready.TrySetResult();};Closing+=(_,e)=>{if(busy){e.Cancel=true;return;}if(Result is null&&draft.Count>0&&!discard&&MessageBox.Show(this,"Discard the unsaved set and item copies? No items have been created yet.","Unsaved set",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)e.Cancel=true;else closed=true;};
+        Loaded+=async(_,_)=>{await Task.WhenAll(RefreshWorld(),LoadPreviewCharacters(selectedCharacter));ready.TrySetResult();};Closing+=(_,e)=>{if(busy){e.Cancel=true;return;}if(Result is null&&draft.Count>0&&!discard&&MessageBox.Show(this,"Discard the unsaved set and item copies? No items have been created yet.","Unsaved set",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)e.Cancel=true;else closed=true;};
         slot.ItemsSource=GearDesign.EquipmentSlots.Select(p=>new FilterChoice(p.Key,p.Value)).ToList();slot.SelectedIndex=0;rarity.ItemsSource=new[]{new FilterChoice(-1,"All rarities")}.Concat(CatalogItem.Qualities.Select((q,n)=>new FilterChoice(n,q))).ToList();rarity.SelectedIndex=0;FilterBases();bonuses.Columns[1]=new DataGridTextColumn{Header="Bonus spell",Binding=new System.Windows.Data.Binding("SpellId"){Converter=new SpellLabelConverter(refs.Data)},Width=new DataGridLength(1,DataGridLengthUnitType.Star)};
     }
+    private async Task LoadPreviewCharacters(CharacterInfo? initial)
+    {
+        try{var characters=await CharacterRepository.ListAsync();if(closed)return;choosingCharacter=true;previewCharacter.ItemsSource=characters;previewCharacter.SelectedItem=characters.FirstOrDefault(c=>c.Guid==initial?.Guid)??characters.FirstOrDefault();choosingCharacter=false;await (PreviewLoading=LoadPreviewCharacter());}catch(Exception ex){choosingCharacter=false;equipment.PreviewPending("Could not load characters: "+ex.Message);}
+    }
+    private async Task LoadPreviewCharacter()
+    {
+        int token=++characterRequest;equipment.PreviewPending("Loading selected character appearance…");if(previewCharacter.SelectedItem is not CharacterInfo selected){equipment.PreviewPending("No saved characters available. Set creation still works.");return;}
+        try{var profile=await ModelCharacterRepository.Load(selected);if(token!=characterRequest||closed)return;equipment.SetPreviewCharacter(profile);}catch(Exception ex){if(token==characterRequest&&!closed)equipment.PreviewPending("Appearance unavailable: "+ex.Message);}
+    }
+    internal void UseDocumentationPreview(){choosingCharacter=true;previewCharacter.ItemsSource=new[]{new CharacterInfo(0,"Example character",60,1,false,0)};previewCharacter.SelectedIndex=0;choosingCharacter=false;equipment.SetPreviewCharacter(new(1,0,"Example character"));}
+    internal void RemovePreviewPiece(int target){var piece=draft.FirstOrDefault(p=>p.Slot==target);if(piece is not null){draft.Remove(piece);Render();}}
     private static void Field(Panel parent,string title,Control control){var panel=new StackPanel{Margin=new Thickness(0,0,12,6)};panel.Children.Add(DesignerWindow.Text(title,11));control.Margin=new Thickness(0,5,0,0);panel.Children.Add(control);parent.Children.Add(panel);}
     private FrameworkElement ChoosePieces()
     {

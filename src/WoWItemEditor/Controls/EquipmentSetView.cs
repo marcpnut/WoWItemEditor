@@ -9,6 +9,11 @@ internal sealed record EquipmentViewItem(object Key,CatalogItem Item,int? Slot=n
 
 internal sealed class EquipmentSetView : Grid
 {
+    private DockPanel leftHost=null!;
+    private CharacterModelView? characterModel;
+    internal Task ModelLoading=>characterModel?.Loading??Task.CompletedTask;
+    internal CharacterScene? ModelScene=>characterModel?.Scene;
+    internal ModelCharacter? PreviewProfile=>modelProfile;
     private readonly Grid board=new(){Width=526,Height=560};
     private readonly Viewbox mannequin=new(){Stretch=Stretch.Uniform,StretchDirection=StretchDirection.DownOnly,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Top};
     private readonly StackPanel tooltip=new();
@@ -43,7 +48,7 @@ internal sealed class EquipmentSetView : Grid
     internal EquipmentSetView()
     {
         ColumnDefinitions.Add(new(){Width=new GridLength(550)});ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
-        var left=new DockPanel{Margin=new Thickness(0,0,10,0)};Children.Add(left);note.Margin=new Thickness(10,0,0,8);DockPanel.SetDock(note,Dock.Top);left.Children.Add(note);
+        var left=leftHost=new DockPanel{Margin=new Thickness(0,0,10,0)};Children.Add(left);note.Margin=new Thickness(10,0,0,8);DockPanel.SetDock(note,Dock.Top);left.Children.Add(note);
         var extras=extraPanel;extras.Header="Additional pieces / slot conflicts";extras.Content=overflow;extras.Margin=new Thickness(10,6,0,0);DockPanel.SetDock(extras,Dock.Bottom);left.Children.Add(extras);overflow.SelectionChanged+=(_,_)=>{if(!binding&&overflow.SelectedItem is EquipmentViewItem row)Select(row);};overflow.MouseDoubleClick+=(_,_)=>{if(!readOnly&&overflow.SelectedItem is EquipmentViewItem row)EditRequested?.Invoke(row);};
         mannequin.Child=board;left.Children.Add(mannequin);
         Background=new SolidColorBrush(Color.FromRgb(35,36,40));
@@ -55,8 +60,20 @@ internal sealed class EquipmentSetView : Grid
         var pane=new DockPanel{Margin=new Thickness(6,0,0,0)};SetColumn(pane,1);Children.Add(pane);DockPanel.SetDock(heading,Dock.Top);heading.Foreground=Brushes.LightSkyBlue;heading.Margin=new Thickness(8,0,0,8);pane.Children.Add(heading);DockPanel.SetDock(drops,Dock.Top);pane.Children.Add(drops);drops.Click+=(_,_)=>RequestSelectedDrops();pane.Children.Add(DesignerWindow.Preview(tooltip,"ITEM TOOLTIP"));
         TooltipView.Fill(tooltip,[new("Select an occupied equipment slot.",ItemTooltip.Gray)]);
     }
+    internal void EnableCharacterPreview()
+    {
+        if(characterModel is not null)return;ColumnDefinitions[0].Width=new GridLength(1.2,GridUnitType.Star);leftHost.Children.Remove(mannequin);characterModel=new(savedAppearance:true,portrait:true);
+        var layout=new Grid();layout.ColumnDefinitions.Add(new(){Width=new GridLength(53)});layout.ColumnDefinitions.Add(new());layout.ColumnDefinitions.Add(new(){Width=new GridLength(53)});for(int n=0;n<8;n++)layout.RowDefinitions.Add(new());layout.RowDefinitions.Add(new(){Height=GridLength.Auto});leftHost.Children.Add(layout);Grid.SetColumn(characterModel,1);Grid.SetRowSpan(characterModel,8);layout.Children.Add(characterModel);
+        int[] left=[0,1,2,14,4,3,18,8],right=[9,5,6,7,10,11,12,13];
+        foreach(var (slot,frame) in frames){board.Children.Remove(frame);frame.Width=47;frame.Height=46;frame.Margin=new Thickness(2);labels[slot].Visibility=Visibility.Collapsed;if(frame.Child is DockPanel row&&row.Children.OfType<Border>().FirstOrDefault() is {} icon){icon.Width=33;icon.Margin=new Thickness(0);row.Margin=new Thickness(3);}if(slot is 15 or 16 or 17)continue;int index=Array.IndexOf(left,slot);Grid.SetColumn(frame,index>=0?0:2);Grid.SetRow(frame,index>=0?index:Array.IndexOf(right,slot));layout.Children.Add(frame);}
+        var hands=new WrapPanel{HorizontalAlignment=HorizontalAlignment.Center};Grid.SetColumnSpan(hands,3);Grid.SetRow(hands,8);layout.Children.Add(hands);foreach(int slot in new[]{15,16,17})hands.Children.Add(frames[slot]);characterModel.Pending("Choose a character to preview this set.");
+    }
+    internal void SetPreviewCharacter(ModelCharacter profile){modelProfile=profile;RefreshCharacter();ItemVisualPreview.Outfit(tooltip,equipped.Where(p=>p.Value.Active).ToDictionary(p=>p.Key,p=>p.Value.Item),profile);}
+    internal void PreviewPending(string message){modelProfile=null;characterModel?.Pending(message);}
+    private void RefreshCharacter(){if(modelProfile is not null)characterModel?.Bind(equipped.Where(p=>p.Value.Active).ToDictionary(p=>p.Key,p=>p.Value.Item),modelProfile);}
     protected override Size MeasureOverride(Size availableSize)
     {
+        if(characterModel is not null)return base.MeasureOverride(availableSize);
         mannequin.MaxHeight=double.IsInfinity(availableSize.Height)?560:Math.Max(0,availableSize.Height-38-(extraPanel.Visibility==Visibility.Visible?30+(extraPanel.IsExpanded?Math.Min(110,Overflow.Count*30+8):0):0));
         return base.MeasureOverride(availableSize);
     }
@@ -91,7 +108,7 @@ internal sealed class EquipmentSetView : Grid
             var targets=row.Slot.HasValue?new[]{row.Slot.Value}:GearDesign.Targets(row.Item);int? target=targets.Where(s=>frames.ContainsKey(s)&&!equipped.ContainsKey(s)&&!(s==16&&equipped.GetValueOrDefault(15)?.Item.Slot==17)).Cast<int?>().FirstOrDefault();
             if(!target.HasValue){extra.Add(row);continue;}equipped[target.Value]=row;
         }
-        ItemVisualPreview.Outfit(tooltip,equipped.Where(p=>p.Value.Active).ToDictionary(p=>p.Key,p=>p.Value.Item),modelProfile);Overflow=extra;extraPanel.Visibility=extra.Count>0?Visibility.Visible:Visibility.Collapsed;extraPanel.Header=$"Additional pieces / slot conflicts ({extra.Count})";binding=true;overflow.ItemsSource=extra;overflow.SelectedItem=null;binding=false;
+        RefreshCharacter();ItemVisualPreview.Outfit(tooltip,equipped.Where(p=>p.Value.Active).ToDictionary(p=>p.Key,p=>p.Value.Item),modelProfile);Overflow=extra;extraPanel.Visibility=extra.Count>0?Visibility.Visible:Visibility.Collapsed;extraPanel.Header=$"Additional pieces / slot conflicts ({extra.Count})";binding=true;overflow.ItemsSource=extra;overflow.SelectedItem=null;binding=false;
         foreach(int slot in frames.Keys){labels[slot].Children.Clear();bool filled=equipped.TryGetValue(slot,out var row);var color=filled?row!.Item.NameBrush:Brushes.SlateGray;symbols[slot].Stroke=color;frames[slot].Opacity=filled&&!row!.Active?0.55:1;
             labels[slot].Children.Add(new TextBlock{Text=GearDesign.EquipmentSlots[slot],FontSize=10,Foreground=Brushes.Gray});labels[slot].Children.Add(new TextBlock{Text=filled?row!.Item.Name:slot==16&&equipped.GetValueOrDefault(15)?.Item.Slot==17?"Two-hand weapon":"Empty",FontSize=11,Foreground=color,TextTrimming=TextTrimming.CharacterEllipsis});frames[slot].ToolTip=readOnly&&filled?row!.Item.Name+" · select for tooltip":filled?$"{row!.Item.Name}\nItem level {row.Item.ItemLevel}\nSelect for tooltip · double-click to edit":GearDesign.EquipmentSlots[slot];}
         var selected=entries.FirstOrDefault(e=>Equals(e.Key,selectedKey))??entries.FirstOrDefault(e=>e.Item.Id==Selection?.Item.Id&&e.Slot==Selection.Slot)??entries.FirstOrDefault();if(selected is not null)Select(selected);else ClearSelection();

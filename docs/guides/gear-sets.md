@@ -4,7 +4,7 @@
 
 ## Create a new set
 
-1. Open **Set creator** and enter the set name.
+1. Open **Set creator** and enter the set name. **Preview character · set gear only** starts with the character selected in the main screen; choose another saved character there if needed. The 3D model uses that character's saved appearance but starts unequipped. Adding or removing copies updates the model; current inventory equipment is not imported.
 2. In **1 · Choose & edit copies**, use **Find base items & copies** to pick an equipment slot and search/filter base items. Choose **Add duplicate to this slot**. Each selection becomes a separate new item on save; the base remains unchanged.
 3. Repeat for the desired slots. Empty slots are allowed. Two-hand weapons reserve both hands. Shirt and tabard can be outfit copies, but do not count toward the client's 17-member set limit.
 4. Select a piece in **Equipment layout** to inspect its tooltip; double-click it or use **Edit copy draft** to change that copy. In this context **Apply to set draft** returns the item changes to the pending set; the final set save persists them.

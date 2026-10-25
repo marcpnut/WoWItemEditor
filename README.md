@@ -2,6 +2,8 @@
 
 Windows desktop editor for compatible World of Warcraft Classic 1.60.1 server data, with MariaDB-backed item, spell and proc catalogs, character equipment previews and custom set creation.
 
+[Download the Windows preview](https://github.com/marcpnut/WoWItemEditor/releases) · [Folder guide](docs/ARCHITECTURE.md)
+
 ## Editing guides
 
 [Edit or duplicate items](docs/guides/items.md) · [Create and modify gear sets](docs/guides/gear-sets.md) · [Configure weapon procs](docs/guides/weapon-procs.md)
@@ -12,7 +14,7 @@ Item editing with current and draft tooltip comparisons:
 
 ![Item editor](docs/screenshots/item-editor.png)
 
-Set creation with equipment slots and duplicated items:
+Set creation with a live character model, equipment slots and duplicated items:
 
 ![Set creator](docs/screenshots/set-creator.png)
 
