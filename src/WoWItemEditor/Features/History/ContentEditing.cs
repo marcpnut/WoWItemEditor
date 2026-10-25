@@ -189,6 +189,14 @@ internal static class ContentEditing
         var target=JsonSerializer.Deserialize<ItemSnapshot>(op.Active?op.Before:op.After)!;
         await ItemSaveSafety.ValidateSnapshot(db,tx,target,scope.Kind is "Item" or "ItemDrops"?scope.EntityId:null);
         var before=JsonSerializer.Deserialize<ItemSnapshot>(op.Before)!;var after=JsonSerializer.Deserialize<ItemSnapshot>(op.After)!;
+        await RestoreRetained(db,tx,scope,before,after,target);
+        await ActiveChangeRecovery.ValidateFinal(db,tx,[scope]);
+        var resulting=await CaptureAsync(db,tx,scope,true);
+        using(var cmd=new MySqlCommand($"UPDATE {Operations} SET IsActive=@active,IsHidden=0,Version=Version+1,ExpectedJson=@expected WHERE OperationId=@op",db,tx)){cmd.Parameters.AddWithValue("@active",!op.Active);cmd.Parameters.AddWithValue("@expected",HistoryActions.Serialize(resulting));cmd.Parameters.AddWithValue("@op",op.Id);await cmd.ExecuteNonQueryAsync();}
+        await Audit(db,tx,scope,op.Active?"Revert content edit":"Reapply content edit",op.Name,op.Id,current,resulting);
+    }
+    internal static async Task RestoreRetained(MySqlConnection db,MySqlTransaction tx,ContentScope scope,ItemSnapshot before,ItemSnapshot after,ItemSnapshot target)
+    {
         foreach(string table in (scope.Kind is "Clone" or "NewSet" or "SetMembers" or "ItemDrops"?Array.Empty<string>():scope.Kind=="Set"?new[]{"item_set_spell"}:scope.Kind=="Item"?new[]{"item_sparse","item"}:new[]{"item_effect","item_x_item_effect"})){
             var ids=before.Tables[table].Concat(after.Tables[table]).Select(r=>int.Parse(r["ID"]!)).Concat(scope.Kind=="Set"||table=="item_x_item_effect"?scope.RowIds:scope.EffectIds).Distinct();
             foreach(int id in ids){
@@ -209,8 +217,6 @@ internal static class ContentEditing
         if(scope.Drops is not null)await WorldDrops.Restore(db,tx,scope.Drops,target);
         if(scope.CopyScope is not null)await ItemCloning.RestoreAsync(db,tx,scope,target);
         if(scope.Bonus is not null)await BonusSpells.RestoreAsync(db,tx,scope.Bonus,target);
-        var resulting=await CaptureAsync(db,tx,scope,true);
-        using(var cmd=new MySqlCommand($"UPDATE {Operations} SET IsActive=@active,IsHidden=0,Version=Version+1,ExpectedJson=@expected WHERE OperationId=@op",db,tx)){cmd.Parameters.AddWithValue("@active",!op.Active);cmd.Parameters.AddWithValue("@expected",HistoryActions.Serialize(resulting));cmd.Parameters.AddWithValue("@op",op.Id);await cmd.ExecuteNonQueryAsync();}
-        await Audit(db,tx,scope,op.Active?"Revert content edit":"Reapply content edit",op.Name,op.Id,current,resulting);
     }
+
 }

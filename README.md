@@ -12,7 +12,7 @@ Before editing, make complete, restorable backups of your world, hotfix and char
 
 ## Editing guides
 
-[Edit or duplicate items](docs/guides/items.md) · [Create and modify gear sets](docs/guides/gear-sets.md) · [Configure weapon procs](docs/guides/weapon-procs.md)
+[Edit or duplicate items](docs/guides/items.md) · [Create and modify gear sets](docs/guides/gear-sets.md) · [Configure weapon procs](docs/guides/weapon-procs.md) · [Recover active edits after an upgrade](docs/guides/active-change-recovery.md)
 
 ## Screenshots
 
