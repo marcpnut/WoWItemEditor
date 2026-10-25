@@ -16,6 +16,7 @@ internal sealed record EditorSettings
     public string WorldDatabase {get;init;}="foreverclassic_world";
     public string CharacterDatabase {get;init;}="foreverclassic_characters";
     public string BackupDatabase {get;init;}="wow_item_editor_backup";
+    public string NpcCacheDatabase {get;init;}="wow_item_editor_npc_cache";
     public string Db2Folder {get;init;}="";
     public string MapFolder {get;init;}="";
     public string ClientFolder {get;init;}="";
@@ -26,8 +27,8 @@ internal sealed record EditorSettings
     internal void Validate(bool folders=true)
     {
         if(string.IsNullOrWhiteSpace(Server)||string.IsNullOrWhiteSpace(User)||Port is 0 or >65535||ConnectionTimeout is <1 or >120)throw new InvalidOperationException("Enter a host, user, port 1–65535 and timeout 1–120 seconds.");
-        var names=new[]{HotfixDatabase,WorldDatabase,CharacterDatabase,BackupDatabase};
-        if(names.Any(n=>!Regex.IsMatch(n,"^[A-Za-z0-9_]{1,64}$"))||names.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=4)throw new InvalidOperationException("Use four different database names containing only letters, digits and underscores (maximum 64 characters).");
+        var names=new[]{HotfixDatabase,WorldDatabase,CharacterDatabase,BackupDatabase,NpcCacheDatabase};
+        if(names.Any(n=>!Regex.IsMatch(n,"^[A-Za-z0-9_]{1,64}$"))||names.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5)throw new InvalidOperationException("Use five different database names containing only letters, digits and underscores (maximum 64 characters).");
         if(!Enum.TryParse<MySqlSslMode>(SslMode,out _))throw new InvalidOperationException("Choose a supported TLS mode.");
         if(!folders)return;
         if(!File.Exists(Path.Combine(Db2Folder,"ItemSparse.db2")))throw new InvalidOperationException("Choose the extracted DB2 folder containing ItemSparse.db2 (usually data/dbc/enUS).");

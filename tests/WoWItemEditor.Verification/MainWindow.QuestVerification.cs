@@ -1,68 +1,57 @@
 using System.IO;
-
 using System.Text.Json;
-
 namespace WoWItemEditor;
-
 public partial class MainWindow
-
 {
-
     private async Task VerifyQuests(CatalogResult catalog)
-
     {
-
         var list=await QuestCreation.Browse();if(list.Count==0)throw new InvalidOperationException("No eligible quest givers.");var results=new List<object>();await QuestNpcBrowser.NameFactions(list);await File.WriteAllTextAsync("artifacts/quest-factions.json",JsonSerializer.Serialize(new{factions=list.Take(20),template=(await ItemModelAssets.Shared.Table("FactionTemplate")).First(),faction=(await ItemModelAssets.Shared.Table("Faction")).First(),xp=(await ItemModelAssets.Shared.Table("QuestXP")).First(),money=(await ItemModelAssets.Shared.Table("QuestMoneyReward")).First()}));
-
         foreach(int id in new[]{167,196,197,239}){var source=await QuestCreation.Source(id);var scenes=await NpcModelBuilder.Build(source,catalog);if(scenes.Count==0||scenes.Any(s=>s.Mesh.Triangles==0||s.Mesh.Textures==0))throw new InvalidOperationException("NPC scene missing geometry/textures.");var view=new ItemModelView();var window=new System.Windows.Window{Title=source.Npc.Name,Content=view,Width=950,Height=950,Owner=this};window.Show();view.ShowScene(scenes[0].Mesh,scenes[0].Name);await RenderEditorWindow(window,"npc-"+id);window.Close();results.Add(new{id,variants=scenes.Count,triangles=scenes[0].Mesh.Triangles,textures=scenes[0].Mesh.Textures});}
-
         QuestPlacement? placement=null;foreach(var hero in (await CharacterRepository.ListAsync()).Where(c=>!c.Online)){try{placement=await QuestCreation.Capture(hero.Guid);break;}catch(InvalidOperationException){}}
-
         if(placement is null)throw new InvalidOperationException("An offline outdoor character is required for the rollback save test.");
-
+        QuestDraft? formFixture=null;QuestEditSession? editorFixture=null;
         using(var db=await DatabaseConnection.OpenAsync(CatalogRepository.Database)){
-
-            await ContentEditing.InitializeAsync(db);await CreatedQuests.Initialize(db);using var tx=await db.BeginTransactionAsync();
-
+            await QuestEditing.Initialize(db);using var tx=await db.BeginTransactionAsync();
             var source=await QuestCreation.Source(167,db,tx);var draft=new QuestDraft("Local rollback test","Local rollback quest","Talk to this NPC.","A local rollback verification.","Here is your item.",1,1,22418,1,true,120,12345);
-
             var saved=await QuestCreation.SaveCore(db,tx,source,draft,placement);
-
             var spawn=(await WorldDrops.Query(db,tx,$"SELECT * FROM {QuestCreation.World}.creature WHERE guid={saved.SpawnId}")).Single();
-
             var quest=(await WorldDrops.Query(db,tx,$"SELECT * FROM {QuestCreation.World}.quest_template WHERE ID={saved.QuestId}")).Single();
-
             if(spawn["id"]!=saved.NpcId.ToString()||quest["RewardItem1"]!="22418"||quest["RewardAmount1"]!="1"||(await QuestCreation.Source(167,db,tx)).Fingerprint!=source.Fingerprint)throw new InvalidOperationException("Quest copy transaction verification failed.");
-
             if(quest["AllowableRaces"]!=ulong.MaxValue.ToString()||float.Parse(quest["RewardXPMultiplier"]!,System.Globalization.CultureInfo.InvariantCulture)<=0||float.Parse(quest["RewardMoneyMultiplier"]!,System.Globalization.CultureInfo.InvariantCulture)<=0)throw new InvalidOperationException("Reward or race fields missing.");
-
-            var audit=(await WorldDrops.Query(db,tx,$"SELECT * FROM {QuestCreation.History} WHERE NpcId={saved.NpcId}")).Single();var entry=new CreatedQuest(saved.OperationId,saved.NpcId,saved.SpawnId,saved.QuestId,draft.Title,draft.NpcName,"Active",audit["SnapshotJson"]!);string expected=await CreatedQuests.Capture(entry,db,tx);await CreatedQuests.DeleteCore(entry,expected,db,tx);if((await WorldDrops.Query(db,tx,$"SELECT ID FROM {QuestCreation.World}.quest_template WHERE ID={saved.QuestId}")).Count!=0)throw new InvalidOperationException("Deletion failed.");
-
+            var audit=(await WorldDrops.Query(db,tx,$"SELECT * FROM {QuestCreation.History} WHERE NpcId={saved.NpcId}")).Single();var entry=new CreatedQuest(saved.OperationId,saved.NpcId,saved.SpawnId,saved.QuestId,draft.Title,draft.NpcName,"Active",audit["SnapshotJson"]!);string expected=await CreatedQuests.Capture(entry,db,tx);
+            var edited=draft with{Title="Edited rollback quest",Level=12,Options=new(){Objectives=[new(0,0,6,2,"Defeat two creatures"),new(0,1,772,1,"Collect one item"),new(0,3,196,1,"Speak to the NPC"),new(0,8,0,1000,"Bring 10 silver"),new(0,5,1459,1,"Learn a spell")],Guaranteed=[new(22418,1)],Choices=[new(19019,1)],Reputation=[new(54,250)],SourceItem=159,SourceCount=2,SourceSpell=1459,RewardSpell=1459,Repeat="Daily",TimeSeconds=600,MaxLevel=60,SuggestedPlayers=3,RequiredSkill=164,RequiredSkillPoints=25,CompletionLog="Return to the NPC.",IncompleteText="Keep going, $N!",EndNpc=167}};
+            formFixture=edited;editorFixture=new(entry,edited,expected,spawn);
+            var editSession=new QuestEditSession(entry,draft,expected,spawn);await QuestEditing.SaveCore(db,tx,editSession,edited);
+            var objectiveRows=await WorldDrops.Query(db,tx,$"SELECT * FROM {QuestCreation.World}.quest_objectives WHERE QuestID={saved.QuestId} ORDER BY `Order`");if(objectiveRows.Count!=5||objectiveRows.Select(r=>r["ID"]).Distinct().Count()!=5||objectiveRows[4]["StorageIndex"]!="-1")throw new InvalidOperationException("Objective persistence failed.");
+            var current=(await WorldDrops.Query(db,tx,$"SELECT * FROM {QuestCreation.World}.quest_template WHERE ID={saved.QuestId}")).Single();if(current["RewardChoiceItemID1"]!="19019"||current["RewardFactionOverride1"]!="25000"||current["StartItem"]!="159"||current["TimeAllowed"]!="600"||(uint.Parse(current["Flags"]!)&4096)==0)throw new InvalidOperationException("Advanced rewards / repeat settings failed.");
+            if((await WorldDrops.Query(db,tx,$"SELECT id FROM {QuestCreation.World}.creature_questender WHERE quest={saved.QuestId}")).Single()["id"]!="167")throw new InvalidOperationException("Turn-in relation failed.");
+            string updated=await CreatedQuests.Capture(entry,db,tx);var secondSession=await QuestEditing.Load(entry,db,tx);if(secondSession.Draft.Options.Objectives.Count!=5||secondSession.Draft.Options.Choices.Count!=1||secondSession.Draft.Options.Repeat!="Daily"||secondSession.Draft.Options.Reputation.Single().Amount!=250)throw new InvalidOperationException("Saved quest did not reload correctly.");await QuestEditing.SaveCore(db,tx,secondSession,edited with{RewardText="A revised reward dialogue."});if(!(await WorldDrops.Query(db,tx,$"SELECT ID FROM {QuestCreation.World}.quest_objectives WHERE QuestID={saved.QuestId} ORDER BY `Order`")).Select(r=>r["ID"]).SequenceEqual(objectiveRows.Select(r=>r["ID"])))throw new InvalidOperationException("Text edit changed objective identities.");
+            bool conflict=false;try{await QuestEditing.SaveCore(db,tx,editSession,edited);}catch(InvalidOperationException){conflict=true;}if(!conflict)throw new InvalidOperationException("Stale edit was not rejected.");
+            bool cycle=false;try{QuestDefinitions.Validate(edited with{Options=edited.Options with{NextQuest=saved.QuestId}},saved.QuestId);}catch(InvalidOperationException){cycle=true;}if(!cycle)throw new InvalidOperationException("Quest self-link was not rejected.");
+            expected=await CreatedQuests.Capture(entry,db,tx);await CreatedQuests.DeleteCore(entry,expected,db,tx);if((await WorldDrops.Query(db,tx,$"SELECT ID FROM {QuestCreation.World}.quest_objectives WHERE QuestID={saved.QuestId}")).Count!=0)throw new InvalidOperationException("Objective deletion failed.");
+if((await WorldDrops.Query(db,tx,$"SELECT ID FROM {QuestCreation.World}.quest_template WHERE ID={saved.QuestId}")).Count!=0)throw new InvalidOperationException("Deletion failed.");
             await tx.RollbackAsync();if((await WorldDrops.Query(db,null,$"SELECT guid FROM {QuestCreation.World}.creature WHERE guid={saved.SpawnId}")).Count!=0||(await WorldDrops.Query(db,null,$"SELECT ID FROM {QuestCreation.World}.quest_template WHERE ID={saved.QuestId}")).Count!=0)throw new InvalidOperationException("Rollback failed.");
-
         }
-
         if(!list.Any(n=>n.FactionName=="Stormwind")||list.Any(n=>n.FactionName.StartsWith("Loading faction")))throw new InvalidOperationException("Faction naming failed.");
-        int checkedNpcs=0,viewableNpcs=0;await QuestNpcBrowser.Scan(catalog,(npc,done,total)=>{checkedNpcs=done;if(npc is not null)viewableNpcs++;},CancellationToken.None,8);if(checkedNpcs!=8||viewableNpcs==0)throw new InvalidOperationException("NPC capability filtering failed.");
-        var creator=new QuestCreatorWindow(catalog){Owner=this};creator.Show();await creator.Ready;await RenderEditorWindow(creator,"quest-creator-local");var tabs=((System.Windows.Controls.DockPanel)creator.Content).Children.OfType<System.Windows.Controls.TabControl>().Single();tabs.SelectedIndex=2;await RenderEditorWindow(creator,"quest-rewards-local");creator.Close();
-        if(!(await CreatedQuests.List()).Any(e=>e.QuestId==99412&&e.State=="Active"))throw new InvalidOperationException("Previously created quest is missing from management.");
+        int checkedNpcs=0,viewableNpcs=0;string cacheTestKey=Guid.NewGuid().ToString("N")+Guid.NewGuid().ToString("N");long cacheLoadMs=0;
+        try{await NpcCache.Rebuild(catalog,(npc,done,total)=>{checkedNpcs=done;if(npc is not null)viewableNpcs++;},CancellationToken.None,8,cacheTestKey);var timer=System.Diagnostics.Stopwatch.StartNew();var cached=await NpcCache.Load(cacheTestKey);timer.Stop();cacheLoadMs=timer.ElapsedMilliseconds;if(!cached.Cached||cached.Npcs.Count!=viewableNpcs||checkedNpcs!=8||viewableNpcs==0)throw new InvalidOperationException("MariaDB NPC cache failed.");using var cancelled=new CancellationTokenSource();bool stopped=false;try{await NpcCache.Rebuild(catalog,(_,done,_)=>{if(done==1)cancelled.Cancel();},cancelled.Token,8,cacheTestKey);}catch(OperationCanceledException){stopped=true;}var unchanged=await NpcCache.Load(cacheTestKey);if(!stopped||unchanged.UpdatedUtc!=cached.UpdatedUtc||!unchanged.Npcs.Select(n=>n.Id).SequenceEqual(cached.Npcs.Select(n=>n.Id)))throw new InvalidOperationException("Cancelled scan replaced the cache.");}
+        finally{using var cacheDb=await DatabaseConnection.OpenAsync(NpcCache.Database);foreach(string table in new[]{"npc_models","npc_scan_runs"}){using var clear=new MySqlConnector.MySqlCommand($"DELETE FROM {table} WHERE DatasetKey=@key",cacheDb);clear.Parameters.AddWithValue("@key",cacheTestKey);await clear.ExecuteNonQueryAsync();}}
 
-        await File.WriteAllTextAsync("artifacts/quest-verification.json",JsonSerializer.Serialize(new{eligible=list.Count,previews=results,checkedNpcs,viewableNpcs,databaseWrites="XP, gold, all-races availability, creation, deletion and rollback verified; no test NPC or quest left in world"},new JsonSerializerOptions{WriteIndented=true}));
-
+        var creator=new QuestCreatorWindow(catalog){Owner=this};creator.Show();await creator.Ready;await RenderEditorWindow(creator,"quest-creator-local");var tabs=((System.Windows.Controls.DockPanel)creator.Content).Children.OfType<System.Windows.Controls.TabControl>().Single();tabs.SelectedIndex=2;await RenderEditorWindow(creator,"quest-author-story");creator.Close();
+        if(formFixture is not null&&editorFixture is not null){var shared=new QuestForm(catalog);var window=new System.Windows.Window{Content=shared,Width=1300,Height=950,Owner=this};window.Show();await shared.Bind(formFixture);var roundTrip=shared.Draft(formFixture.NpcName);if(roundTrip.Title!=formFixture.Title||roundTrip.RewardItem!=formFixture.RewardItem||roundTrip.Options.Objectives.Count!=5||roundTrip.Options.Choices.Count!=1||roundTrip.Options.Repeat!="Daily")throw new InvalidOperationException("Shared form round-trip failed.");for(int i=0;i<shared.Pages.Items.Count;i++){shared.Pages.SelectedIndex=i;await RenderEditorWindow(window,"quest-author-page-"+i);}window.Close();var editWindow=new QuestEditorWindow(catalog,editorFixture.Entry,editorFixture){Owner=this};editWindow.Show();await editWindow.Ready;await RenderEditorWindow(editWindow,"quest-edit-created");editWindow.Close();}
+        var markerHero=(await CharacterRepository.ListAsync()).First(c=>c.Level>10&&c.Level<=60);string marker=await QuestAvailability.Check(new("NPC","Quest","Instructions","Offer","Reward",1,1,0,0,true),markerHero,0,167);if(!marker.Contains("low-level / trivial quest tracking"))throw new InvalidOperationException("Low-level marker guidance is missing.");
+        await File.WriteAllTextAsync("artifacts/quest-verification.json",JsonSerializer.Serialize(new{eligible=list.Count,previews=results,checkedNpcs,viewableNpcs,cacheLoadMs,databaseWrites="Quest objectives, requirements, multiple rewards, edit audit, conflict rejection, stable objective IDs, deletion and rollback verified; no test NPC or quest left in world"},new JsonSerializerOptions{WriteIndented=true}));
     }
-
-    private async Task InspectQuestAssets()
-
+    private async Task RebuildNpcCache(CatalogResult catalog)
     {
-
-        var assets=ItemModelAssets.Shared;var displays=await assets.Table("CreatureDisplayInfo");var extra=await assets.Table("CreatureDisplayInfoExtra");var models=await assets.Table("CreatureModelData");var result=new List<object>();
-
-        foreach(int id in new[]{1844,3251,1859,3265}){var row=displays[id];int model=TooltipData.Number(row,"ModelID");var definition=models[model];result.Add(new{id,display=row,extra=extra.GetValueOrDefault(TooltipData.Number(row,"ExtendedDisplayInfoID")),model=definition,mesh=await StaticItemModel.Describe(assets,TooltipData.Number(definition,"FileDataID"))});}
-
-        var linked=new Dictionary<string,object>();foreach(string table in new[]{"CreatureDisplayInfoOption","CreatureDisplayInfoGeosetData","NPCModelItemSlotDisplayInfo","ChrCustomizationDisplayInfo","CharHairGeosets","TextureFileData"}){var rows=await assets.Table(table);linked[table]=new{example=rows.Values.Take(2),matches=rows.Values.Where(r=>r.Any(p=>(p.Key.Contains("Display")||p.Key.Contains("Material")||p.Key.Contains("Npc"))&&new[]{1844,3251,1859,3265,515,548,584,1557,116887,116888}.Contains(int.TryParse(p.Value,out int n)?n:0))).Take(100).ToArray()};}await File.WriteAllTextAsync("artifacts/quest-linked-assets.json",JsonSerializer.Serialize(linked,new JsonSerializerOptions{WriteIndented=true}));
-
-        await File.WriteAllTextAsync("artifacts/quest-assets.json",JsonSerializer.Serialize(result,new JsonSerializerOptions{WriteIndented=true}));
-
+        var result=await NpcCache.Rebuild(catalog,(npc,done,total)=>{if(done%10==0)File.WriteAllText("artifacts/npc-cache-progress.json",JsonSerializer.Serialize(new{done,total,last=npc?.Name}));},CancellationToken.None);
+        var clock=System.Diagnostics.Stopwatch.StartNew();var cached=await NpcCache.Load();clock.Stop();await File.WriteAllTextAsync("artifacts/npc-cache-result.json",JsonSerializer.Serialize(new{accepted=result.Npcs.Count,result.Checked,cached=cached.Cached,loadMs=clock.ElapsedMilliseconds,database=NpcCache.Database}));
     }
-
+    private async Task InspectQuestAssets()
+    {
+        var assets=ItemModelAssets.Shared;var displays=await assets.Table("CreatureDisplayInfo");var extra=await assets.Table("CreatureDisplayInfoExtra");var models=await assets.Table("CreatureModelData");var result=new List<object>();
+        foreach(int id in new[]{1844,3251,1859,3265}){var row=displays[id];int model=TooltipData.Number(row,"ModelID");var definition=models[model];result.Add(new{id,display=row,extra=extra.GetValueOrDefault(TooltipData.Number(row,"ExtendedDisplayInfoID")),model=definition,mesh=await StaticItemModel.Describe(assets,TooltipData.Number(definition,"FileDataID"))});}
+        var linked=new Dictionary<string,object>();foreach(string table in new[]{"CreatureDisplayInfoOption","CreatureDisplayInfoGeosetData","NPCModelItemSlotDisplayInfo","ChrCustomizationDisplayInfo","CharHairGeosets","TextureFileData"}){var rows=await assets.Table(table);linked[table]=new{example=rows.Values.Take(2),matches=rows.Values.Where(r=>r.Any(p=>(p.Key.Contains("Display")||p.Key.Contains("Material")||p.Key.Contains("Npc"))&&new[]{1844,3251,1859,3265,515,548,584,1557,116887,116888}.Contains(int.TryParse(p.Value,out int n)?n:0))).Take(100).ToArray()};}await File.WriteAllTextAsync("artifacts/quest-linked-assets.json",JsonSerializer.Serialize(linked,new JsonSerializerOptions{WriteIndented=true}));
+        await File.WriteAllTextAsync("artifacts/quest-assets.json",JsonSerializer.Serialize(result,new JsonSerializerOptions{WriteIndented=true}));
+    }
 }

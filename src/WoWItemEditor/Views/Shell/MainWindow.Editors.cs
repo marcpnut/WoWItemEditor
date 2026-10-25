@@ -3,7 +3,7 @@ namespace WoWItemEditor;
 
 public partial class MainWindow
 {
-    private void OpenCreatedQuests(object sender,RoutedEventArgs e)=>new CreatedQuestsWindow(){Owner=this}.ShowDialog();
+    private void OpenCreatedQuests(object sender,RoutedEventArgs e){if(loadedCatalog is not null)new CreatedQuestsWindow(loadedCatalog){Owner=this}.ShowDialog();}
     private void OpenQuestCreator(object sender,RoutedEventArgs e)
     {
         if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{new QuestCreatorWindow(loadedCatalog,CharacterPicker.SelectedItem as CharacterInfo){Owner=this}.ShowDialog();}catch(Exception ex){Status.Text="Could not open quest creator: "+ex.Message;}finally{editorLoading=false;}

@@ -53,7 +53,7 @@ public partial class MainWindow : Window
     }
     private void OpenSettings(object sender,RoutedEventArgs e)
     {
-        var window=new SettingsWindow(){Owner=this};if(window.ShowDialog()==true)Status.Text="Settings saved. Restart WoWItemEditor to apply them; the current session keeps its existing connection.";
+        var window=new SettingsWindow(catalog:loadedCatalog){Owner=this};if(window.ShowDialog()==true)Status.Text="Settings saved. Restart WoWItemEditor to apply them; the current session keeps its existing connection.";
     }
     private async Task LoadCatalog()
     {
@@ -73,7 +73,7 @@ public partial class MainWindow : Window
             BindItems();
             SetCatalogStatus(result);
             if(ItemsGrid.SelectedItem is null && view?.IsEmpty==false) ItemsGrid.SelectedIndex=0;
-            if(verify&&!Environment.GetCommandLineArgs().Contains("--verify-startup")){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--verify-quests")){await VerifyQuests(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--inspect-quest-assets")){await InspectQuestAssets();Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-creator")){await VerifySetCreation(result,await EditorReferences());Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-skins")){await VerifySkins(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-saved-appearances")){await VerifySavedAppearances(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-races")){await VerifyRaces(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
+            if(verify&&!Environment.GetCommandLineArgs().Contains("--verify-startup")){File.Delete("artifacts/verification-error.txt");if(Environment.GetCommandLineArgs().Contains("--rebuild-npc-cache")){await RebuildNpcCache(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-quests")){await VerifyQuests(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--inspect-quest-assets")){await InspectQuestAssets();Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-creator")){await VerifySetCreation(result,await EditorReferences());Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-skins")){await VerifySkins(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-saved-appearances")){await VerifySavedAppearances(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-races")){await VerifyRaces(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-character-model")){await VerifyCharacterModel(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-models")){await VerifyModels(result);}else if(Environment.GetCommandLineArgs().Contains("--verify-equipment")){await VerifyEquipmentLayout(result);Close();}else if(Environment.GetCommandLineArgs().Contains("--verify-set-review")){await VerifySetReview(result);Close();}else await VerifyAndRender(result);}
         }
         catch(Exception ex)
         {
