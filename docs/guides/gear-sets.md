@@ -39,13 +39,13 @@ Rotate the model with the mouse or axis sliders, use **Larger view…** for more
 
 ## Modify a saved created set
 
-1. Open **Modify created sets** and choose the set. A loading bar and member-by-member message show what is being read.
-2. Use **Equipment layout** to inspect/select members. In **Members & add copies**, add a base as a new duplicate or remove a member from the draft. Removing a saved member detaches it from the set; its item and existing drops are preserved.
+1. Open **Modify created sets** and choose the set. A loading bar and member-by-member message show what is being read. **Preview character** uses your selected saved character; choose another character to inspect how the same set fits that body.
+2. **Equipment layout** shows the character in 3D wearing only the set's current draft members, with equipment slots around the model. Current inventory gear is not imported; an empty draft is unequipped. Adding, removing or editing members updates this preview. Rotate with the mouse or sliders, use **Larger view…** for detail, and switch melee/ranged display as needed. Select a slot for its tooltip and double-click to edit. In **Members & add copies**, add a base as a new duplicate or remove a member from the draft. Removing a saved member detaches it from the set; its item and existing drops are preserved.
 3. Choose **Review & save membership** to persist membership changes before opening saved-item, bonus or drop editors.
 4. Use **Edit selected saved item…**, **Edit set bonuses…** or **Edit selected item drops…** for further changes. Double-click a saved equipment piece to open its item editor.
 5. Use **Character preview & balance…** and **Set testing checklist…** to review the complete result. **Reload set** reloads the selected set and can discard pending membership edits.
 
-![Modify-created-sets equipment view](../screenshots/created-sets.png)
+![Modify Created Sets with a live 3D character and set equipment](../screenshots/created-sets.png)
 
 Only active sets created by this editor appear in Modify created sets. Use the separate Set bonuses editor to change bonuses on an existing native set. Changes to a saved item are shared by every server instance of that item ID.
 
