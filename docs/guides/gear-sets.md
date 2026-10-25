@@ -10,7 +10,17 @@
 4. Select a piece in **Equipment layout** to inspect its tooltip; double-click it or use **Edit copy draft** to change that copy. In this context **Apply to set draft** returns the item changes to the pending set; the final set save persists them.
 5. Optional bulk item/required levels use **Apply levels to all copies**. Inspect the resulting item previews before saving.
 
-![Set creation with duplicated equipment](../screenshots/set-creator.png)
+### Live character preview
+
+An empty set shows the selected character without equipped gear:
+
+![Set Creator showing an empty set on an unequipped character](../screenshots/set-creator-empty.png)
+
+Adding copies equips them on the 3D preview. Here the draft contains a head and chest piece; removing a piece also removes it from the model:
+
+![Set Creator showing the draft head and chest pieces on the character](../screenshots/set-creator.png)
+
+Rotate the model with the mouse or axis sliders, use **Larger view…** for more detail, and choose **Main hand / off hand** or **Ranged** for weapon display.
 
 ## Configure set bonuses
 
