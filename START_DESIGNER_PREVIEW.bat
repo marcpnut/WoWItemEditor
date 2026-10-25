@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
-if not exist "artifacts\sharing-final\Release\net10.0-windows\WoWItemEditor.dll" (
-  dotnet build -c Release -p:BaseOutputPath=artifacts/sharing-final/
+if not exist "artifacts\organized-docs-ready\Release\net10.0-windows\WoWItemEditor.dll" (
+  dotnet build src\WoWItemEditor\WoWItemEditor.csproj -c Release -o artifacts/organized-docs-ready/Release/net10.0-windows
   if errorlevel 1 exit /b 1
 )
-dotnet "artifacts\sharing-final\Release\net10.0-windows\WoWItemEditor.dll"
+dotnet "artifacts\organized-docs-ready\Release\net10.0-windows\WoWItemEditor.dll"

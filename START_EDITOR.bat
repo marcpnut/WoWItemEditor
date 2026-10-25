@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-dotnet run --project WoWItemEditor.csproj -c Release
+dotnet run --project src\WoWItemEditor\WoWItemEditor.csproj -c Release

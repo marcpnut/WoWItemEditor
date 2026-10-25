@@ -5,10 +5,10 @@
     <UseWPF>true</UseWPF><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Remove="artifacts/**/*.cs" />
-    <None Update="README.md" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="THIRD_PARTY_LICENSES/**/*" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../tests/WoWItemEditor.Verification/**/*.cs" Link="Verification/%(Filename)%(Extension)" />
+    <None Include="../../README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../docs/**/*" Link="docs/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../licenses/**/*" Link="licenses/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="DBCD" Version="2.3.1" />
     <PackageReference Include="MySqlConnector" Version="2.4.0" />
     <PackageReference Include="TACTSharp" Version="0.2.0-alpha" />

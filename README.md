@@ -2,14 +2,34 @@
 
 Windows desktop editor for compatible World of Warcraft Classic 1.60.1 server data, with MariaDB-backed item, spell and proc catalogs, character equipment previews and custom set creation.
 
+## Editing guides
+
+[Edit or duplicate items](docs/guides/items.md) · [Create and modify gear sets](docs/guides/gear-sets.md) · [Configure weapon procs](docs/guides/weapon-procs.md)
+
+## Screenshots
+
+Item editing with current and draft tooltip comparisons:
+
+![Item editor](docs/screenshots/item-editor.png)
+
+Set creation with equipment slots and duplicated items:
+
+![Set creator](docs/screenshots/set-creator.png)
+
+Weapon-proc editing with spell assignments and trigger settings:
+
+![Weapon-proc editor](docs/screenshots/weapon-procs.png)
+
+The guides include more screens for set membership and bonuses. Screenshots show verification fixtures and draft changes; they contain no saved character details or connection credentials.
+
 ## Get started
 
 1. Install the .NET 10 SDK on Windows to build from source.
-2. Run **START_EDITOR.bat**, or build with `dotnet build WoWItemEditor.csproj -c Release`.
+2. Run **START_EDITOR.bat**, or build with `dotnet build WoWItemEditor.slnx -c Release`.
 3. First-run setup asks for your MariaDB connection and extracted game-data folders. You can change them later using **Settings…** at the bottom of the sidebar.
 4. Use **Test connection** to check access to your hotfix, world and character databases without changing their data.
 
-A self-contained Windows build can be created with `dotnet publish WoWItemEditor.csproj -c Release -r win-x64 --self-contained true -o publish`. Run WoWItemEditor.exe from that folder. Each user supplies their own server connection and game data.
+A self-contained Windows build can be created with `dotnet publish src/WoWItemEditor/WoWItemEditor.csproj -c Release -r win-x64 --self-contained true -o publish`. Run WoWItemEditor.exe from that folder. Each user supplies their own server connection and game data.
 
 ## Settings
 
@@ -41,7 +61,7 @@ At startup the app automatically creates the configured backup database and miss
 
 Server editing needs privileges for the relevant hotfix/world tables and the editor's history tables/backup database. Character inventory is read for previews; gear try-on does not move real items. Set/item saves change shared server data. Keep server backups and test edits before applying them to a live server.
 
-Model effects and some customization details are approximated. Some native skin choices have near-black source textures; the viewer reports this rather than substituting a different saved skin. Stats are server-table previews; unsupported scaling contexts are marked. See MODEL_VIEWER_PLAN.md, ROADMAP.md and THIRD_PARTY_NOTICES.md for implementation details and third-party notices.
+Model effects and some customization details are approximated. Some native skin choices have near-black source textures; the viewer reports this rather than substituting a different saved skin. Stats are server-table previews; unsupported scaling contexts are marked. See [model viewer notes](docs/MODEL_VIEWER_PLAN.md), [roadmap](docs/ROADMAP.md) and [third-party notices](licenses/THIRD_PARTY_NOTICES.md) for implementation details and third-party notices.
 
 ## Verification
 
@@ -53,4 +73,14 @@ Model effects and some customization details are approximated. Some native skin 
 
 Run a built WoWItemEditor executable with the chosen flag. Verification output stays in the ignored artifacts folder and may contain local character/item data; do not publish that folder.
 
-This project is not affiliated with Blizzard Entertainment. Third-party package licenses remain applicable; see THIRD_PARTY_NOTICES.md.
+This project is not affiliated with Blizzard Entertainment. Third-party package licenses remain applicable; see [third-party notices](licenses/THIRD_PARTY_NOTICES.md).
+
+## Repository layout
+
+- `src/WoWItemEditor/`: WPF application, organized into configuration, data access, feature logic, rendering, reusable controls and views.
+- `tests/WoWItemEditor.Verification/`: existing in-app verification scenarios, linked into the app to exercise internal editors and WPF windows.
+- `docs/`: architecture, roadmap, model viewer and server safety notes.
+- `licenses/`: dependency notices and license texts.
+- `artifacts/`: ignored local builds, screenshots and verification reports.
+
+Open `WoWItemEditor.slnx` in your IDE, or run `dotnet build` from the repository root. See [architecture and folder guide](docs/ARCHITECTURE.md) for where to put new code.
