@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
-if not exist "artifacts\modify-set-012\Release\net10.0-windows\WoWItemEditor.dll" (
-  dotnet build src\WoWItemEditor\WoWItemEditor.csproj -c Release -o artifacts/modify-set-012/Release/net10.0-windows
+if not exist "artifacts\quest-local\WoWItemEditor.dll" (
+  dotnet build src\WoWItemEditor\WoWItemEditor.csproj -c Release -o artifacts/quest-local
   if errorlevel 1 exit /b 1
 )
-dotnet "artifacts\modify-set-012\Release\net10.0-windows\WoWItemEditor.dll"
+dotnet "artifacts\quest-local\WoWItemEditor.dll"

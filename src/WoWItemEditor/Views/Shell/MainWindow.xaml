@@ -13,6 +13,7 @@
     <RadioButton Content="Proc catalog" GroupName="Navigation" Checked="Navigate"/>
     <Border Height="1" Background="#36383F" Margin="26,14,26,14"/>
     <TextBlock Text="EDITORS" Foreground="#787F8C" FontSize="10" Margin="26,0,0,8"/>
+    <Button Content="Quest creator (local)" Click="OpenQuestCreator" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Set creator" Click="OpenSetCreator" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Modify created sets" Click="OpenCreatedSets" Margin="10,3" HorizontalContentAlignment="Left"/>
     <Button Content="Set preview &amp; balance" Click="OpenSetAnalysis" Margin="10,3" HorizontalContentAlignment="Left"/>

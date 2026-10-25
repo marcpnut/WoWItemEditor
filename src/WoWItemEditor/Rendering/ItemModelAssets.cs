@@ -47,6 +47,13 @@ internal sealed class ItemModelAssets
             var materialIds=new[]{TooltipData.Number(row,"ModelMaterialResourcesID1"),TooltipData.Number(row,"ModelMaterialResourcesID2")}.Where(id=>id>0).ToHashSet();return new(appearance,display,parts.DistinctBy(p=>p.Model).ToArray(),$"Appearance {appearance} · Display {display} · Client {Version}"){AdditionalTextures=textures.Values.Where(t=>materialIds.Contains(TooltipData.Number(t,"MaterialResourcesID"))).Select(t=>TooltipData.Number(t,"FileDataID")).Where(id=>id>0).Distinct().ToArray()};
         }finally{gate.Release();}
     }
+    internal async Task<ItemModelAppearance> ResolveDisplay(int display)
+    {
+        var definitions=await Table("ItemDisplayInfo");var modelRows=await Table("ModelFileData");var textureRows=await Table("TextureFileData");
+        if(!definitions.TryGetValue(display,out var row))throw new InvalidOperationException($"NPC clothing display {display} is unavailable.");
+        var parts=new List<ItemModelPart>();for(int n=1;n<=2;n++){int resource=TooltipData.Number(row,"ModelResourcesID"+n),material=TooltipData.Number(row,"ModelMaterialResourcesID"+n);if(resource==0)continue;var skins=textureRows.Values.Where(t=>material>0&&TooltipData.Number(t,"MaterialResourcesID")==material).OrderBy(t=>TooltipData.Number(t,"UsageType")).Select(t=>TooltipData.Number(t,"FileDataID")).Where(id=>id>0).Distinct().ToArray();foreach(int file in modelRows.Values.Where(m=>TooltipData.Number(m,"ModelResourcesID")==resource).Select(m=>TooltipData.Number(m,"FileDataID")).Where(id=>id>0).Distinct())parts.Add(new(file,skins,n-1));}
+        return new(0,display,parts.ToArray(),$"NPC clothing display {display}");
+    }
     internal async Task<Dictionary<int,Dictionary<string,string>>> Table(string name)
     {
         await gate.WaitAsync();try{await Task.Run(()=>LoadClient(null));var existing=name switch{"ItemDisplayInfo"=>displays,"ModelFileData"=>models,"TextureFileData"=>textures,_=>null};if(existing is {Count:>0})return existing;if(extraTables.TryGetValue(name,out var cached))return cached;

@@ -3,6 +3,10 @@ namespace WoWItemEditor;
 
 public partial class MainWindow
 {
+    private void OpenQuestCreator(object sender,RoutedEventArgs e)
+    {
+        if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{new QuestCreatorWindow(loadedCatalog,CharacterPicker.SelectedItem as CharacterInfo){Owner=this}.ShowDialog();}catch(Exception ex){Status.Text="Could not open quest creator: "+ex.Message;}finally{editorLoading=false;}
+    }
     private bool editorLoading;
     private async Task EditCharacterItem(int id){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{var editor=new ItemEditorWindow(loadedCatalog,id){Owner=this};editor.ShowDialog();if(editor.Saved)await LoadCatalog();}catch(Exception ex){Status.Text="Could not edit item: "+ex.Message;}finally{editorLoading=false;}}
     private async void OpenSetAnalysis(object sender,RoutedEventArgs e){if(loadedCatalog is null||editorLoading)return;editorLoading=true;try{int? set=(ItemsGrid.SelectedItem as CatalogItem)?.Number("ItemSet");var preview=new SetAnalysisWindow(loadedCatalog,set>0?set:null){Owner=this};preview.ShowDialog();if(preview.Saved){InvalidateReferences();await LoadCatalog();}}catch(Exception ex){Status.Text=ex.Message;}finally{editorLoading=false;}}

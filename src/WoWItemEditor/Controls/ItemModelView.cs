@@ -83,7 +83,7 @@ internal sealed class ItemModelView : Grid
         bool first=customScene is null;request++;item=null;appearance=null;customScene=scene;if(first)Reset();title.Text=name;title.Foreground=Brushes.LightSkyBlue;part.Visibility=skin.Visibility=Visibility.Collapsed;visual.Content=null;message.Visibility=Visibility.Collapsed;
         var bounds=scene.Model.Bounds;var wrapper=new Model3DGroup();wrapper.Children.Add(scene.Model);wrapper.Transform=new TranslateTransform3D(-bounds.X-bounds.SizeX/2,-bounds.Y-bounds.SizeY/2,-bounds.Z-bounds.SizeZ/2);visual.Content=wrapper;distance=Math.Max(.1,Math.Sqrt(bounds.SizeX*bounds.SizeX+bounds.SizeY*bounds.SizeY+bounds.SizeZ*bounds.SizeZ)/2)*3.5;Camera();TriangleCount=scene.Triangles;TextureCount=scene.Textures;info.Text=scene.Note;LoadedItem=-1;
     }
-    internal void ShowLoading(string text){request++;visual.Content=null;message.Text=text;message.Visibility=Visibility.Visible;}
+    internal void ShowLoading(string text){request++;customScene=null;item=null;title.Text="3D preview";visual.Content=null;message.Text=text;message.Visibility=Visibility.Visible;}
     private async Task Load(CatalogItem? selected,bool force)
     {
         int token=++request;LoadedItem=TriangleCount=TextureCount=0;visual.Content=null;appearance=null;message.Visibility=Visibility.Visible;title.Text=selected?.Name??"Select an item";title.Foreground=selected?.NameBrush??Brushes.LightSkyBlue;if(selected is null){message.Text="Select an item to view its model.";return;}message.Text="Loading textured item…";info.Text="Reading client assets; missing files may be downloaded into the viewer cache…";retry.IsEnabled=false;
